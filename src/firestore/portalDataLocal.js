@@ -117,6 +117,18 @@ function buildDemoState() {
         anglerUsername: 'dayrolongas',
       },
     ],
+    laganaWallPosts: [
+      {
+        id: base + 51,
+        species: 'Mojarra Amarilla',
+        location: 'Un charquito detrás del rancho',
+        date: '2026-04-03',
+        image: null,
+        angler: 'Luis Montoya',
+        anglerUsername: 'afishingday',
+        clubVisible: true,
+      },
+    ],
     talks: [
       {
         id: base + 60,
@@ -459,6 +471,20 @@ export async function saveRecord(record) {
 export async function deleteRecord(id) {
   mutate((draft) => {
     draft.records = (draft.records || []).filter((r) => String(r.id) !== String(id))
+  })
+}
+
+export async function saveLaganaWallPost(post) {
+  mutate((draft) => {
+    const rows = draft.laganaWallPosts || []
+    const next = stripForFirestore(post)
+    draft.laganaWallPosts = [...rows.filter((r) => String(r.id) !== String(post.id)), next]
+  })
+}
+
+export async function deleteLaganaWallPost(id) {
+  mutate((draft) => {
+    draft.laganaWallPosts = (draft.laganaWallPosts || []).filter((r) => String(r.id) !== String(id))
   })
 }
 

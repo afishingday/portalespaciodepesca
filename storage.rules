@@ -22,6 +22,11 @@ service firebase.storage {
       allow write: if isImage() && under600KB();
     }
 
+    match /laganaWallPosts/{postId}/{fileName} {
+      allow read: if true;
+      allow write: if isImage() && under600KB();
+    }
+
     match /bitacora/{entryId}/{fileName} {
       allow read: if true;
       allow write: if isImage() && under600KB();

@@ -257,6 +257,13 @@ export async function deleteRecord(id) {
   await deleteDoc(doc(db, 'records', String(id)))
 }
 
+export async function saveLaganaWallPost(post) {
+  await setDoc(doc(db, 'laganaWallPosts', String(post.id)), stripForFirestore(post))
+}
+export async function deleteLaganaWallPost(id) {
+  await deleteDoc(doc(db, 'laganaWallPosts', String(id)))
+}
+
 export async function saveTalk(talk) {
   await setDoc(doc(db, 'talks', String(talk.id)), stripForFirestore(talk))
 }

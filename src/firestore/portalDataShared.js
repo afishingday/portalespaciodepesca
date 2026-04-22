@@ -8,6 +8,7 @@ export const COLLECTION_NAMES = [
   'polls',
   'events',
   'records',
+  'laganaWallPosts',
   'talks',
   'bitacora',
   'communityPosts',
@@ -33,7 +34,7 @@ export function sortRows(name, rows) {
   if (name === 'directoryEntries') {
     return [...rows].sort(compareDirectoryEntriesByNameAsc)
   }
-  if (['news', 'proposals', 'polls', 'records', 'talks', 'events', 'communityPosts'].includes(name)) {
+  if (['news', 'proposals', 'polls', 'records', 'laganaWallPosts', 'talks', 'events', 'communityPosts'].includes(name)) {
     return [...rows].sort((a, b) => compareRowsChronologicalDesc(a, b, 'date'))
   }
   if (name === 'logs')

@@ -32,6 +32,8 @@ export const {
   deleteEvent,
   saveRecord,
   deleteRecord,
+  saveLaganaWallPost,
+  deleteLaganaWallPost,
   saveTalk,
   deleteTalk,
   saveBitacoraEntry,

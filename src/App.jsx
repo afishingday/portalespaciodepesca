@@ -3,7 +3,7 @@ import {
   Newspaper, BookMarked, Megaphone, CheckSquare, CalendarDays, Trophy,
   Video, Fish, BookOpen, Users, ScrollText, Layers,
   Menu, X, Info, AlertCircle, Loader2, LogOut, KeyRound, Eye, EyeOff,
-  Handshake, MapPinned, UserCircle, Scale,
+  Handshake, MapPinned, UserCircle, Scale, Droplets,
 } from 'lucide-react'
 import { EMPTY_DB } from './initialData.js'
 import {
@@ -26,6 +26,8 @@ import {
   deleteEvent,
   saveRecord,
   deleteRecord,
+  saveLaganaWallPost,
+  deleteLaganaWallPost,
   saveTalk,
   deleteTalk,
   saveBitacoraEntry,
@@ -63,6 +65,7 @@ import ProposalsView from './features/proposals/ProposalsView.jsx'
 import PollsView from './features/polls/PollsView.jsx'
 import EventsView from './features/events/EventsView.jsx'
 import RecordsView from './features/records/RecordsView.jsx'
+import LaganaWallView from './features/laganaWall/LaganaWallView.jsx'
 import TalksView from './features/talks/TalksView.jsx'
 import SpeciesView from './features/species/SpeciesView.jsx'
 import BitacoraView from './features/bitacora/BitacoraView.jsx'
@@ -85,6 +88,7 @@ const SECTION_NAV_ICONS = {
   polls: CheckSquare,
   events: CalendarDays,
   records: Trophy,
+  laganaWall: Droplets,
   talks: Video,
   species: Fish,
   bitacora: BookOpen,
@@ -682,6 +686,17 @@ function PortalApp() {
                   db={db}
                   saveRecord={saveRecord}
                   deleteRecord={deleteRecord}
+                  logAction={logAction}
+                  showAlert={showAlert}
+                  showConfirm={showConfirm}
+                />
+              )}
+              {activeTab === 'laganaWall' && (
+                <LaganaWallView
+                  currentUser={currentUser}
+                  db={db}
+                  saveLaganaWallPost={saveLaganaWallPost}
+                  deleteLaganaWallPost={deleteLaganaWallPost}
                   logAction={logAction}
                   showAlert={showAlert}
                   showConfirm={showConfirm}
