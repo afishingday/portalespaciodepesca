@@ -1,0 +1,45 @@
+import { useLocalPortalData } from '../firebase.js'
+import * as firestoreBackend from './portalDataFirestore.js'
+import * as localBackend from './portalDataLocal.js'
+
+const backend = useLocalPortalData ? localBackend : firestoreBackend
+
+export const {
+  COLLECTION_NAMES,
+  stripForFirestore,
+  subscribePortalDb,
+  seedFirestoreIfEmpty,
+  seedFishingDirectoryIfEmpty,
+  syncUsersIfNeeded,
+  migrateLegacyApprovedPasswordIfNeeded,
+  updateUserPlainPassword,
+  updateUserProfile,
+  setUserBlockedStatus,
+  approvePendingUser,
+  rejectPendingUser,
+  addPendingUser,
+  appendLog,
+  addNewsPost,
+  updateNewsPost,
+  deleteNewsPost,
+  saveProposal,
+  deleteProposal,
+  convertProposalToPoll,
+  convertProposalToEvent,
+  savePoll,
+  deletePoll,
+  saveEvent,
+  deleteEvent,
+  saveRecord,
+  deleteRecord,
+  saveTalk,
+  deleteTalk,
+  saveBitacoraEntry,
+  deleteBitacoraEntry,
+  saveCommunityPost,
+  deleteCommunityPost,
+  saveDirectoryEntry,
+  deleteDirectoryEntry,
+  updatePortalSectionVisibility,
+  updatePortalSectionSettings,
+} = backend

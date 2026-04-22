@@ -1,0 +1,40 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isImage() {
+      return request.resource != null
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    function under600KB() {
+      return request.resource != null
+        && request.resource.size <= 600 * 1024;
+    }
+
+    // Lectura publica de imagenes del portal.
+    match /news/{newsId}/{fileName} {
+      allow read: if true;
+      allow write: if isImage() && under600KB();
+    }
+
+    match /records/{recordId}/{fileName} {
+      allow read: if true;
+      allow write: if isImage() && under600KB();
+    }
+
+    match /bitacora/{entryId}/{fileName} {
+      allow read: if true;
+      allow write: if isImage() && under600KB();
+    }
+
+    match /events/{eventId}/{fileName} {
+      allow read: if true;
+      allow write: if isImage() && under600KB();
+    }
+
+    // Bloquea cualquier otra ruta por defecto.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
