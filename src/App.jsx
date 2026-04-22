@@ -396,6 +396,12 @@ function PortalApp() {
           }
         }}
         onGuestLogin={() => {
+          void appendLog({
+            user: 'guest',
+            action: 'LOGIN_VISITANTE',
+            details: 'Ingreso como visitante (sin cuenta)',
+            timestamp: new Date().toLocaleString('es-CO'),
+          }).catch(console.error)
           setCurrentUser({ username: 'guest', name: 'Visitante', role: 'guest', avatar: '', phone: '' })
         }}
       />
@@ -414,12 +420,8 @@ function PortalApp() {
     }),
     ...(currentUser.role !== 'guest' ? [{ id: 'profile', label: 'Mi perfil', icon: UserCircle }] : []),
     ...(isAdmin ? [{ id: 'admin', label: 'Cuentas', icon: Users }] : []),
-    ...(isSuperadmin
-      ? [
-          { id: 'logs', label: 'Actividad', icon: ScrollText },
-          { id: 'sections', label: 'Secciones', icon: Layers },
-        ]
-      : []),
+    ...(isAdmin ? [{ id: 'logs', label: 'Actividad', icon: ScrollText }] : []),
+    ...(isSuperadmin ? [{ id: 'sections', label: 'Secciones', icon: Layers }] : []),
   ]
 
   const logout = () => {
@@ -759,7 +761,7 @@ function PortalApp() {
                   showConfirm={showConfirm}
                 />
               )}
-              {activeTab === 'logs' && isSuperadmin && <LogsView db={db} />}
+              {activeTab === 'logs' && isAdmin && <LogsView db={db} />}
               {activeTab === 'sections' && isSuperadmin && (
                 <SectionVisibilityView
                   db={db}

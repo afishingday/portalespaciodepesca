@@ -8,7 +8,7 @@ import { checkStrongPassword } from '../../shared/utils.js'
 import { passwordChangeErrorMessage } from '../../shared/portalErrors.js'
 import { TENANT } from '../../tenant.config.js'
 import { BRAND_LOGO_SRC } from '../../brandAssets.js'
-import { updateUserPlainPassword, addPendingUser } from '../../firestore/portalData.js'
+import { updateUserPlainPassword, addPendingUser, appendLog } from '../../firestore/portalData.js'
 
 const LoginView = ({ db, onLogin, onGuestLogin }) => {
   const [legalOpen, setLegalOpen] = useState(false)
@@ -99,6 +99,12 @@ const LoginView = ({ db, onLogin, onGuestLogin }) => {
     setPwBusy(true)
     try {
       await updateUserPlainPassword(foundUser.username, cpCurrent, pwNext.trim())
+      void appendLog({
+        user: foundUser.username,
+        action: 'CAMBIAR_CONTRASENA',
+        details: 'Cambió contraseña desde la pantalla de inicio (sin sesión activa)',
+        timestamp: new Date().toLocaleString('es-CO'),
+      }).catch(console.error)
       setMode('login')
       setCpUser('')
       setCpCurrent('')
