@@ -16,7 +16,7 @@ export const PORTAL_CONTENT_SECTION_IDS = [
 ]
 
 export const PORTAL_SECTION_LABELS = {
-  news: 'Noticias',
+  news: 'Información de interés',
   pescaColombia: 'Pesca en Colombia',
   proposals: 'Propuestas',
   polls: 'Encuestas',

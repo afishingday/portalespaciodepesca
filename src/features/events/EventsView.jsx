@@ -9,6 +9,9 @@ import {
 import { fetchGeminiDescriptionFromTitle, isGeminiConfigured, getLastGeminiDetail } from '../../geminiClient.js'
 import { ImageCropDialog } from '../../shared/ImageCropDialog.jsx'
 import { portalDateToSortMs } from '../../shared/portalDates.js'
+import { db as firestoreDb, useLocalPortalData } from '../../firebase.js'
+import ReactionBar from '../../reactions/ReactionBar.jsx'
+import { PORTAL_REACTION_APP_CONTEXT } from '../../shared/portalReactionsContext.js'
 
 const emptyForm = () => ({ title: '', date: '', location: '', description: '', image: '' })
 
@@ -23,6 +26,8 @@ const EventsView = ({ currentUser, db, saveEvent, deleteEvent, logAction, showAl
   const [selectedEvent, setSelectedEvent] = useState(null)
   const canManage = isAdminLike(currentUser)
   const aiEnabled = isGeminiConfigured()
+  const reactionUserId = currentUser.role === 'guest' ? null : currentUser.username
+  const showReactions = !useLocalPortalData && firestoreDb
 
   const resetForm = () => {
     setShowForm(false)
@@ -212,6 +217,16 @@ const EventsView = ({ currentUser, db, saveEvent, deleteEvent, logAction, showAl
                 {selectedEvent.description}
               </div>
             )}
+            {showReactions && (
+              <ReactionBar
+                db={firestoreDb}
+                appContext={PORTAL_REACTION_APP_CONTEXT}
+                contentType="events"
+                contentId={selectedEvent.id}
+                userId={reactionUserId}
+                className="mt-6 pt-6 border-t border-zinc-100"
+              />
+            )}
           </div>
         </article>
       </div>
@@ -327,7 +342,17 @@ const EventsView = ({ currentUser, db, saveEvent, deleteEvent, logAction, showAl
         <div className="space-y-4">
           <h3 className="text-lg font-black text-zinc-700 uppercase tracking-widest text-xs border-b border-zinc-100 pb-2">Próximos eventos</h3>
           {upcoming.map((ev) => (
-            <EventCard key={ev.id} ev={ev} canManage={canManage} onOpen={() => setSelectedEvent(ev)} onEdit={() => { setForm({ title: ev.title, date: ev.date, location: ev.location || '', description: ev.description || '', image: ev.image || '' }); setImageFile(null); setImageCropSource(null); setEditingId(ev.id); setShowForm(true) }} onDelete={() => handleDelete(ev)} />
+            <EventCard
+              key={ev.id}
+              ev={ev}
+              canManage={canManage}
+              showReactions={showReactions}
+              firestoreDb={firestoreDb}
+              reactionUserId={reactionUserId}
+              onOpen={() => setSelectedEvent(ev)}
+              onEdit={() => { setForm({ title: ev.title, date: ev.date, location: ev.location || '', description: ev.description || '', image: ev.image || '' }); setImageFile(null); setImageCropSource(null); setEditingId(ev.id); setShowForm(true) }}
+              onDelete={() => handleDelete(ev)}
+            />
           ))}
         </div>
       )}
@@ -336,7 +361,17 @@ const EventsView = ({ currentUser, db, saveEvent, deleteEvent, logAction, showAl
         <div className="space-y-4 opacity-60">
           <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-100 pb-2">Eventos pasados</h3>
           {past.map((ev) => (
-            <EventCard key={ev.id} ev={ev} canManage={canManage} onOpen={() => setSelectedEvent(ev)} onEdit={() => { setForm({ title: ev.title, date: ev.date, location: ev.location || '', description: ev.description || '', image: ev.image || '' }); setImageFile(null); setImageCropSource(null); setEditingId(ev.id); setShowForm(true) }} onDelete={() => handleDelete(ev)} />
+            <EventCard
+              key={ev.id}
+              ev={ev}
+              canManage={canManage}
+              showReactions={showReactions}
+              firestoreDb={firestoreDb}
+              reactionUserId={reactionUserId}
+              onOpen={() => setSelectedEvent(ev)}
+              onEdit={() => { setForm({ title: ev.title, date: ev.date, location: ev.location || '', description: ev.description || '', image: ev.image || '' }); setImageFile(null); setImageCropSource(null); setEditingId(ev.id); setShowForm(true) }}
+              onDelete={() => handleDelete(ev)}
+            />
           ))}
         </div>
       )}
@@ -344,7 +379,7 @@ const EventsView = ({ currentUser, db, saveEvent, deleteEvent, logAction, showAl
   )
 }
 
-function EventCard({ ev, canManage, onOpen, onEdit, onDelete }) {
+function EventCard({ ev, canManage, showReactions, firestoreDb, reactionUserId, onOpen, onEdit, onDelete }) {
   const isPast = new Date(ev.date) < new Date()
   return (
     <article
@@ -376,6 +411,16 @@ function EventCard({ ev, canManage, onOpen, onEdit, onDelete }) {
           {ev.location && <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-blue-500" />{ev.location}</span>}
         </div>
         {ev.description && <p className="text-zinc-600 text-sm line-clamp-4">{ev.description}</p>}
+        {showReactions && (
+          <ReactionBar
+            db={firestoreDb}
+            appContext={PORTAL_REACTION_APP_CONTEXT}
+            contentType="events"
+            contentId={ev.id}
+            userId={reactionUserId}
+            className="mt-3"
+          />
+        )}
       </div>
       </div>
     </article>

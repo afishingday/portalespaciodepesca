@@ -9,6 +9,7 @@ import { passwordChangeErrorMessage } from '../../shared/portalErrors.js'
 import { TENANT } from '../../tenant.config.js'
 import { BRAND_LOGO_SRC } from '../../brandAssets.js'
 import { updateUserPlainPassword, addPendingUser, appendLog } from '../../firestore/portalData.js'
+import { sanitizePortalUsernameInput, validatePortalUsername } from '../../shared/portalUsername.js'
 
 const LoginView = ({ db, onLogin, onGuestLogin }) => {
   const [legalOpen, setLegalOpen] = useState(false)
@@ -56,18 +57,20 @@ const LoginView = ({ db, onLogin, onGuestLogin }) => {
     e.preventDefault()
     setError('')
     if (!regName || !regUsername || !regPhone) return setError('Todos los campos son obligatorios.')
-    const clean = regUsername.trim()
+    const clean = sanitizePortalUsernameInput(regUsername.trim())
+    const v = validatePortalUsername(clean)
+    if (!v.ok) return setError(v.message)
 
     const exists =
-      db.users?.find((u) => u.username?.toLowerCase() === clean.toLowerCase()) ||
-      db.pendingUsers?.find((u) => u.username?.toLowerCase() === clean.toLowerCase())
+      db.users?.find((u) => u.username?.toLowerCase() === v.username.toLowerCase()) ||
+      db.pendingUsers?.find((u) => u.username?.toLowerCase() === v.username.toLowerCase())
     if (exists) return setError('Ese nombre de usuario ya está en uso o en revisión.')
 
     try {
       const pending = {
         id: Date.now(),
         name: regName.trim(),
-        username: clean,
+        username: v.username,
         phone: regPhone.trim(),
         date: new Date().toLocaleDateString('es-CO'),
       }
@@ -237,11 +240,16 @@ const LoginView = ({ db, onLogin, onGuestLogin }) => {
                   <input
                     required
                     type="text"
-                    placeholder="Usuario deseado (Ej. JuanPescador)"
+                    autoComplete="username"
+                    maxLength={30}
+                    placeholder="Usuario deseado (ej. JuanPescador)"
                     value={regUsername}
-                    onChange={(e) => setRegUsername(e.target.value)}
+                    onChange={(e) => setRegUsername(sanitizePortalUsernameInput(e.target.value))}
                     className="w-full pl-12 p-4 rounded-xl border border-zinc-200 bg-zinc-50 outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                   />
+                  <p className="mt-1.5 text-xs text-zinc-500 pl-1">
+                    Solo letras (incluye acentos), números y guion bajo (_). Sin espacios ni símbolos. Entre 3 y 30 caracteres.
+                  </p>
                 </div>
                 <div className="relative">
                   <Phone className="w-5 h-5 absolute left-4 top-4 text-zinc-400" />

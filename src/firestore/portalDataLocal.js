@@ -1,4 +1,5 @@
 import { INITIAL_DATA, PORTAL_USERS_CONFIG_VERSION } from '../initialData.js'
+import clubLogo from '../assets/branding/club-logo.png'
 import {
   PORTAL_DEFAULT_PASSWORD,
   LEGACY_DEFAULT_APPROVED_MEMBER_PASSWORD,
@@ -109,9 +110,10 @@ function buildDemoState() {
         id: base + 50,
         species: 'Pavón / Tucunaré',
         weight: '4.2 kg',
+        lengthCm: 58,
         location: 'Río Meta',
         date: '2026-04-02',
-        image: null,
+        image: clubLogo,
         notes: 'Tomado con popper al atardecer.',
         angler: 'Carlos Pescador',
         anglerUsername: 'dayrolongas',
@@ -123,7 +125,7 @@ function buildDemoState() {
         species: 'Mojarra Amarilla',
         location: 'Un charquito detrás del rancho',
         date: '2026-04-03',
-        image: null,
+        image: clubLogo,
         angler: 'Luis Montoya',
         anglerUsername: 'afishingday',
         clubVisible: true,
@@ -259,6 +261,7 @@ function pushFullState(setDb) {
       out[name] = sortRows(name, [...(state[name] || [])])
     }
     out.settings = {
+      ...(state.settings && typeof state.settings === 'object' ? state.settings : {}),
       sections: mergeSectionVisibility(state.settings?.sections),
       sectionOrder: mergeSectionOrder(state.settings?.sectionOrder),
     }
@@ -559,4 +562,24 @@ export async function updatePortalSectionSettings({ sections, sectionOrder } = {
 
 export async function updatePortalSectionVisibility(sections) {
   await updatePortalSectionSettings({ sections })
+}
+
+export async function acceptTerms(userId, version) {
+  const u = String(userId ?? '').trim()
+  mutate((draft) => {
+    const idx = (draft.users || []).findIndex((row) => row.username === u)
+    if (idx >= 0) {
+      draft.users[idx] = { ...draft.users[idx], termsAcceptedVersion: version, termsAcceptedAt: Date.now() }
+    }
+  })
+}
+
+export async function savePublicSettings(partial) {
+  mutate((draft) => {
+    draft.settings = { ...(draft.settings && typeof draft.settings === 'object' ? draft.settings : {}), ...partial }
+  })
+}
+
+export async function getStorageUsage() {
+  return { byFolder: {}, totalBytes: 0, totalFiles: 0 }
 }

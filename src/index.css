@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --pt-50:  236 253 245;
+  --pt-100: 209 250 229;
+  --pt-200: 167 243 208;
+  --pt-500: 16 185 129;
+  --pt-600: 5 150 105;
+  --pt-700: 4 120 87;
+  --pt-800: 6 95 70;
+  --pt-900: 6 78 59;
+}
+
 html {
   scroll-behavior: smooth;
 }

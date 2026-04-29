@@ -22,6 +22,27 @@ export const TENANT = {
   adminUsernames: ['afishingday', 'dayrolongas'],
 
   /**
+   * Id de contexto para reacciones (Firestore). En otro despliegue (ej. Las Blancas) usa un valor distinto, p. ej. `'lasBlancas'`.
+   */
+  reactionAppContextId: 'espacioPesca',
+
+  /**
+   * Categorías del listado «Información de interés» (filtro y formulario de publicación).
+   * En Las Blancas puedes sustituir por ej. `['General', 'Instalaciones', 'Torneos', 'Comunicados', 'Otros']`.
+   */
+  newsCategories: [
+    'General',
+    'Salidas',
+    'Torneo',
+    'Normativa',
+    'Charla',
+    'Mantenimiento',
+    'Proyectos',
+    'Recursos',
+    'Otros',
+  ],
+
+  /**
    * Usuarios exentos de forzar cambio de contraseña al primer login.
    * Dejar solo cuentas de servicio o prueba; quienes reciban clave inicial al aprobarse deben cambiarla.
    */
@@ -113,6 +134,16 @@ export const TENANT = {
       'Eres asistente para un club de pesca en Colombia. Identifica si la nueva entrada es semánticamente similar (misma idea central) a alguna de las existentes. Sé estricto: solo marca similitud si el tema central es realmente el mismo.',
     duplicateCheckJsonHint:
       'Responde solo JSON: {"hasSimilar":boolean,"similarTitles":string[]}. similarTitles: títulos exactos de las entradas similares (array vacío si ninguna).',
+    directoryDuplicateCheckSystem:
+      'Eres asistente del portal de pesca {{clubName}} en Colombia. Revisas si una NUEVA ficha del Directorio de Pesca es el mismo negocio o persona que una ficha YA EXISTENTE.\n\n' +
+      'Marca riesgo de duplicado SOLO cuando sea muy probable que sea el mismo proveedor:\n' +
+      '- Mismo teléfono, mismo @ de red, mismo correo, o nombre casi idéntico salvo espacios/puntuación (ej. "AF Fishing" y "AFFishing" → duplicado).\n\n' +
+      'NO marques duplicado si son negocios distintos aunque el nombre suene parecido, por ejemplo:\n' +
+      '- "Colombia Fishing Trips" vs "Colombia Fishing Tours" → son diferentes (Trips vs Tours), hasDuplicateRisk debe ser false.\n\n' +
+      'Sé conservador: en duda razonable, hasDuplicateRisk false.',
+    directoryDuplicateCheckJsonHint:
+      'Responde únicamente JSON con esta forma exacta: {"hasDuplicateRisk":boolean,"reason":"una frase breve en español","matchingNames":string[]}. ' +
+      'matchingNames: nombres EXACTOS de fichas existentes que consideras el mismo registro (vacío si ninguna). Si no hay riesgo, hasDuplicateRisk false y reason puede ser "".',
   },
 
   /**
@@ -151,6 +182,45 @@ Al participar, se entiende que la persona ha leído y acepta este aviso. Tener u
 ---
 
 🎣 **¡Buena pesca para todos!**`,
+
+  /**
+   * Términos y condiciones del portal.
+   * Cambiar `termsVersion` fuerza a todos los usuarios a aceptar nuevamente en su próximo acceso.
+   * Reemplazar los placeholders [NOMBRE COMPLETO] y [NÚMERO DE CÉDULA] antes del primer deploy.
+   */
+  legal: {
+    termsVersion: '1.0',
+    termsUpdatedAt: '2026-04-26',
+    ownerName: 'Luis Fernando Montoya Mejia',
+    ownerDoc: 'C.C. 8100898',
+    contact: 'luistyle@gmail.com',
+    sections: [
+      {
+        title: 'Propiedad Intelectual',
+        body: 'Este portal y todo su código fuente son propiedad exclusiva de su desarrollador, protegidos por la Ley 23 de 1982, la Decisión 351 de la CAN y la Ley 1915 de 2018. El acceso al portal no implica cesión de derechos sobre el software, su diseño ni sus componentes.',
+      },
+      {
+        title: 'Licencia de Uso',
+        body: 'Se otorga a los miembros de la comunidad Espacio de Pesca una licencia de uso personal, intransferible y revocable para acceder al portal exclusivamente con fines recreativos y organizativos del grupo. Esta comunidad tiene carácter informal y no constituye club, asociación ni persona jurídica.',
+      },
+      {
+        title: 'Privacidad de Datos',
+        body: 'Los datos personales ingresados (nombre, usuario, teléfono) se almacenan en servidores de Google Firebase con el fin de gestionar el acceso y la comunicación de la comunidad. El tratamiento se realiza conforme a la Ley 1581 de 2012 (Habeas Data). No se comparten datos con terceros. El usuario tiene derecho a conocer, actualizar, rectificar y suprimir su información personal, y a revocar su autorización de tratamiento en cualquier momento. Para ejercer estos derechos escribir a luistyle@gmail.com. También puede presentar reclamaciones ante la Superintendencia de Industria y Comercio (www.sic.gov.co).',
+      },
+      {
+        title: 'Uso Aceptable',
+        body: 'El portal debe usarse de manera respetuosa y en beneficio de la comunidad de pesca. Queda prohibido publicar contenido ofensivo, falso o que vulnere los derechos de otros miembros. El administrador podrá suspender el acceso ante infracciones graves.',
+      },
+      {
+        title: 'Limitación de Responsabilidad',
+        body: 'El desarrollador no es responsable por el contenido publicado por los usuarios, decisiones tomadas con base en la información del portal, interrupciones del servicio ni fallas de terceros (Firebase, Google). El portal se ofrece como herramienta de apoyo comunitario sin garantías de disponibilidad continua.',
+      },
+      {
+        title: 'Vigencia y Modificaciones',
+        body: 'Estos términos entran en vigor desde la primera aceptación y permanecen vigentes mientras el usuario tenga acceso al portal. El desarrollador podrá actualizarlos notificando mediante el mismo portal. El uso continuado después de una actualización implica la aceptación de los nuevos términos.',
+      },
+    ],
+  },
 
   /**
    * Valores por defecto de configuración pública.

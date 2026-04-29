@@ -8,6 +8,9 @@ import { RichTextEditor } from '../../shared/RichTextEditor.jsx'
 import { RichTextContent } from '../../shared/RichTextContent.jsx'
 import { legacyPlainTextToHtml, hasMeaningfulHtmlBody } from '../../shared/richText.js'
 import { todayIsoDate, parseToIsoDate, displayPortalDate } from '../../shared/portalDates.js'
+import { db as firestoreDb, useLocalPortalData } from '../../firebase.js'
+import ReactionBar from '../../reactions/ReactionBar.jsx'
+import { PORTAL_REACTION_APP_CONTEXT } from '../../shared/portalReactionsContext.js'
 
 const emptyForm = () => ({
   title: '',
@@ -35,6 +38,8 @@ const TalksView = ({ currentUser, db, saveTalk, deleteTalk, logAction, showAlert
   const [editorMountId, setEditorMountId] = useState(0)
   const canManage = isAdminLike(currentUser)
   const aiEnabled = isGeminiConfigured()
+  const reactionUserId = currentUser.role === 'guest' ? null : currentUser.username
+  const showReactions = !useLocalPortalData && firestoreDb
 
   const bumpEditor = () => setEditorMountId((n) => n + 1)
 
@@ -146,6 +151,16 @@ const TalksView = ({ currentUser, db, saveTalk, deleteTalk, logAction, showAlert
             <RichTextContent html={selected.content} className="mb-2" />
           ) : (
             <div className="text-zinc-800 text-base leading-relaxed whitespace-pre-wrap">{selected.content || selected.excerpt}</div>
+          )}
+          {showReactions && (
+            <ReactionBar
+              db={firestoreDb}
+              appContext={PORTAL_REACTION_APP_CONTEXT}
+              contentType="talks"
+              contentId={selected.id}
+              userId={reactionUserId}
+              className="mt-6 pt-6 border-t border-zinc-100"
+            />
           )}
         </article>
       </div>
@@ -262,6 +277,16 @@ const TalksView = ({ currentUser, db, saveTalk, deleteTalk, logAction, showAlert
               <span className="flex items-center gap-1"><User className="w-3.5 h-3.5 text-blue-400" />{talk.author}</span>
               <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5 text-blue-400" />{displayPortalDate(talk.date)}</span>
             </div>
+            {showReactions && (
+              <ReactionBar
+                db={firestoreDb}
+                appContext={PORTAL_REACTION_APP_CONTEXT}
+                contentType="talks"
+                contentId={talk.id}
+                userId={reactionUserId}
+                className="mt-3"
+              />
+            )}
           </article>
         ))}
       </div>

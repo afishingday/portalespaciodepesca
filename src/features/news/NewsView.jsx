@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
-  ArrowLeft, User, Calendar, PlusCircle, Edit3, Trash2, Newspaper, Sparkles, Loader2, UploadCloud,
+  ArrowLeft, User, Calendar, PlusCircle, Edit3, Trash2, Newspaper, Sparkles, Loader2, UploadCloud, ShieldAlert,
 } from 'lucide-react'
-import { isAdminLike, requestPolishedText } from '../../shared/utils.js'
+import { isAdminLike, isGuest, requestPolishedText } from '../../shared/utils.js'
+import { newsArticleShownInFeed } from '../../shared/recordVisibility.js'
 import { TENANT } from '../../tenant.config.js'
 import { fetchGeminiDescriptionFromTitle, isGeminiConfigured, getLastGeminiDetail } from '../../geminiClient.js'
 import {
@@ -22,20 +23,47 @@ import {
   hasMeaningfulHtmlBody,
 } from '../../shared/richText.js'
 import { todayIsoDate, parseToIsoDate, displayPortalDate } from '../../shared/portalDates.js'
+import { db as firestoreDb, useLocalPortalData } from '../../firebase.js'
+import ReactionBar from '../../reactions/ReactionBar.jsx'
+import { PORTAL_REACTION_APP_CONTEXT } from '../../shared/portalReactionsContext.js'
 
-const CATEGORIES = ['General', 'Salidas', 'Torneo', 'Normativa', 'Charla', 'Mantenimiento', 'Proyectos']
+const FALLBACK_NEWS_CATEGORIES = Object.freeze([
+  'General', 'Salidas', 'Torneo', 'Normativa', 'Charla', 'Mantenimiento', 'Proyectos', 'Recursos', 'Otros',
+])
+
+function buildNewsCategoriesList() {
+  const raw = TENANT.newsCategories
+  if (!Array.isArray(raw) || raw.length === 0) return [...FALLBACK_NEWS_CATEGORIES]
+  const seen = new Set()
+  const out = []
+  for (const c of raw) {
+    const s = String(c ?? '').trim()
+    if (!s || seen.has(s)) continue
+    seen.add(s)
+    out.push(s)
+  }
+  return out.length > 0 ? out : [...FALLBACK_NEWS_CATEGORIES]
+}
+
+const NEWS_CATEGORIES = Object.freeze(buildNewsCategoriesList())
+
+function normalizeNewsCategory(post) {
+  const c = String(post?.category ?? '').trim()
+  const fallback = NEWS_CATEGORIES[0] || 'General'
+  return NEWS_CATEGORIES.includes(c) ? c : fallback
+}
 
 const emptyForm = () => ({
   title: '',
   excerpt: '',
   content: '<p></p>',
-  category: 'General',
+  category: NEWS_CATEGORIES[0] || 'General',
   image: '',
   youtubeUrl: '',
   publicationDate: todayIsoDate(),
 })
 
-const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost, showAlert, showConfirm }) => {
+const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost, logAction, showAlert, showConfirm }) => {
   const [showForm, setShowForm] = useState(false)
   const [selectedPost, setSelectedPost] = useState(null)
   const [editingId, setEditingId] = useState(null)
@@ -45,7 +73,31 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
   const [imageFile, setImageFile] = useState(null)
   const [imageCropSource, setImageCropSource] = useState(null)
   const [editorMountId, setEditorMountId] = useState(0)
+  const [categoryFilter, setCategoryFilter] = useState('')
   const aiEnabled = isGeminiConfigured()
+  const isModerator = isAdminLike(currentUser)
+  const isGuestUser = isGuest(currentUser)
+  const reactionUserId = currentUser.role === 'guest' ? null : currentUser.username
+  const showReactions = !useLocalPortalData && firestoreDb
+
+  const visibleNews = useMemo(
+    () => (db.news || []).filter((p) => newsArticleShownInFeed(p, currentUser, isModerator)),
+    [db.news, currentUser, isModerator],
+  )
+
+  const categoriesToShow = useMemo(() => {
+    const seen = new Set(visibleNews.map(normalizeNewsCategory))
+    return NEWS_CATEGORIES.filter((c) => seen.has(c))
+  }, [visibleNews])
+
+  const filteredNews = useMemo(() => {
+    if (!categoryFilter) return visibleNews
+    return visibleNews.filter((p) => normalizeNewsCategory(p) === categoryFilter)
+  }, [visibleNews, categoryFilter])
+
+  const canPublish = !isGuestUser
+  const canEditPost = (post) => canPublish && (isModerator || post?.authorUsername === currentUser.username)
+  const canDeletePost = (post) => canPublish && (isModerator || post?.authorUsername === currentUser.username)
 
   const bumpEditor = () => setEditorMountId((n) => n + 1)
 
@@ -60,7 +112,7 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
       title: post.title || '',
       excerpt: post.excerpt || '',
       content: htmlBody,
-      category: post.category || 'General',
+      category: normalizeNewsCategory(post),
       image: post.image || '',
       youtubeUrl: post.youtubeVideoId ? youtubeWatchUrl(post.youtubeVideoId) : '',
       publicationDate: parseToIsoDate(post.date),
@@ -124,16 +176,21 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
         authorUsername: existing?.authorUsername ?? currentUser.username,
         date: form.publicationDate,
         bodyFormat: 'html',
+        adminSuppressed: isEditing ? existing?.adminSuppressed === true : false,
+      }
+      if (isEditing && existing && existing.reactions !== undefined) {
+        payload.reactions = existing.reactions
       }
       if (youtubeVideoId) payload.youtubeVideoId = youtubeVideoId
       if (isEditing) await updateNewsPost(payload)
       else await addNewsPost(payload)
+      if (!isEditing) logAction?.('NUEVA_INFO_INTERES', `${form.title}`.slice(0, 80))
       setShowForm(false)
       setEditingId(null)
       setForm(emptyForm())
       setImageFile(null)
       setImageCropSource(null)
-      showAlert(isEditing ? 'Noticia actualizada.' : '¡Noticia publicada en el muro!')
+      showAlert(isEditing ? 'Entrada actualizada.' : '¡Tu información ya está publicada!')
     } catch (err) {
       if (err instanceof Error && err.message === 'ENTITY_IMAGE_TOO_LARGE') {
         showAlert(`No pudimos reducir la foto lo suficiente (límite de subida ${Math.round(MAX_ENTITY_IMAGE_BYTES / 1024)} KB). Prueba con otra imagen.`)
@@ -204,7 +261,53 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
     }
   }
 
+  const handleAdminSuppress = (post) => {
+    showConfirm(
+      '¿Retirar esta entrada del listado público? Dejará de mostrarse para el resto hasta que un administrador la restaure.',
+      async () => {
+        try {
+          await updateNewsPost({ ...post, adminSuppressed: true })
+          logAction?.('MODERACION_INFO_INTERES_OCULTAR', String(post.id))
+          showAlert('Entrada retirada del listado público.')
+          setSelectedPost((p) => (p && String(p.id) === String(post.id) ? { ...p, adminSuppressed: true } : p))
+        } catch {
+          showAlert('No se pudo aplicar la moderación.')
+        }
+      },
+    )
+  }
+
+  const handleAdminRestore = (post) => {
+    showConfirm(
+      '¿Quitar el retiro por moderación y volver a mostrar esta entrada a todos?',
+      async () => {
+        try {
+          await updateNewsPost({ ...post, adminSuppressed: false })
+          logAction?.('MODERACION_INFO_INTERES_RESTAURAR', String(post.id))
+          showAlert('Entrada restaurada en el listado público.')
+          setSelectedPost((p) => (p && String(p.id) === String(post.id) ? { ...p, adminSuppressed: false } : p))
+        } catch {
+          showAlert('No se pudo restaurar.')
+        }
+      },
+    )
+  }
+
   if (selectedPost) {
+    if (!newsArticleShownInFeed(selectedPost, currentUser, isModerator)) {
+      return (
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <button
+            type="button"
+            onClick={() => setSelectedPost(null)}
+            className="flex items-center text-blue-700 font-bold hover:text-blue-800 bg-white px-4 py-2 rounded-xl shadow-sm w-fit"
+          >
+            <ArrowLeft className="w-5 h-5 mr-2" /> Volver
+          </button>
+          <p className="text-zinc-600 text-sm font-medium">Este contenido no está disponible.</p>
+        </div>
+      )
+    }
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -213,41 +316,51 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
             onClick={() => setSelectedPost(null)}
             className="flex items-center text-blue-700 font-bold hover:text-blue-800 bg-white px-4 py-2 rounded-xl shadow-sm w-fit"
           >
-            <ArrowLeft className="w-5 h-5 mr-2" /> Volver al muro de noticias
+            <ArrowLeft className="w-5 h-5 mr-2" /> Volver al listado
           </button>
-          {isAdminLike(currentUser) && (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => openEdit(selectedPost)}
-                className="inline-flex items-center bg-white border border-blue-200 text-blue-800 px-4 py-2 rounded-xl font-bold text-sm shadow-sm hover:bg-blue-50"
-              >
-                <Edit3 className="w-4 h-4 mr-2" /> Editar
-              </button>
-              <button
-                type="button"
-                onClick={() => requestDelete(selectedPost)}
-                className="inline-flex items-center bg-white border border-red-200 text-red-700 px-4 py-2 rounded-xl font-bold text-sm shadow-sm hover:bg-red-50"
-              >
-                <Trash2 className="w-4 h-4 mr-2" /> Eliminar
-              </button>
+          {(canEditPost(selectedPost) || canDeletePost(selectedPost)) && (
+            <div className="flex flex-wrap gap-2">
+              {canEditPost(selectedPost) && (
+                <button
+                  type="button"
+                  onClick={() => openEdit(selectedPost)}
+                  className="inline-flex items-center bg-white border border-blue-200 text-blue-800 px-4 py-2 rounded-xl font-bold text-sm shadow-sm hover:bg-blue-50"
+                >
+                  <Edit3 className="w-4 h-4 mr-2" /> Editar
+                </button>
+              )}
+              {canDeletePost(selectedPost) && (
+                <button
+                  type="button"
+                  onClick={() => requestDelete(selectedPost)}
+                  className="inline-flex items-center bg-white border border-red-200 text-red-700 px-4 py-2 rounded-xl font-bold text-sm shadow-sm hover:bg-red-50"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" /> Eliminar
+                </button>
+              )}
             </div>
           )}
         </div>
         <article className="bg-white rounded-3xl shadow-sm border border-zinc-100 overflow-hidden">
+          {selectedPost.adminSuppressed && (
+            <div className="px-4 py-3 text-xs font-black uppercase tracking-wide bg-rose-100 text-rose-900 border-b border-rose-200 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 shrink-0" />
+              Retirada del listado público por moderación
+            </div>
+          )}
           {selectedPost.image && (
             <div className="relative h-64 md:h-80 bg-zinc-100">
               <img src={selectedPost.image} alt={selectedPost.title} className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/50 to-transparent" />
               <span className="absolute top-4 left-4 bg-blue-600 text-white text-[10px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest">
-                {selectedPost.category}
+                {normalizeNewsCategory(selectedPost)}
               </span>
             </div>
           )}
           <div className="p-6 md:p-10">
             {!selectedPost.image && (
               <span className="inline-block bg-blue-600 text-white text-[10px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest mb-4">
-                {selectedPost.category}
+                {normalizeNewsCategory(selectedPost)}
               </span>
             )}
             <h2 className="text-3xl font-black text-zinc-900 mb-4 leading-tight">{selectedPost.title}</h2>
@@ -263,6 +376,37 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
             ) : (
               <div className="text-zinc-800 text-base leading-relaxed whitespace-pre-wrap">
                 {selectedPost.content || selectedPost.excerpt}
+              </div>
+            )}
+            {showReactions && (
+              <ReactionBar
+                db={firestoreDb}
+                appContext={PORTAL_REACTION_APP_CONTEXT}
+                contentType="news"
+                contentId={selectedPost.id}
+                userId={reactionUserId}
+                className="mt-6 pt-6 border-t border-zinc-100"
+              />
+            )}
+            {isModerator && (
+              <div className="mt-6 pt-6 border-t border-zinc-100">
+                {!selectedPost.adminSuppressed ? (
+                  <button
+                    type="button"
+                    onClick={() => handleAdminSuppress(selectedPost)}
+                    className="w-full sm:w-auto py-2.5 px-4 rounded-xl text-xs font-black border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"
+                  >
+                    Retirar del público (moderación)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleAdminRestore(selectedPost)}
+                    className="w-full sm:w-auto py-2.5 px-4 rounded-xl text-xs font-black border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                  >
+                    Quitar retiro por moderación
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -286,10 +430,10 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
       />
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-black text-zinc-900">Muro de Noticias</h2>
-          <p className="text-zinc-500 mt-1">Novedades y comunicados del {TENANT.name}.</p>
+          <h2 className="text-3xl font-black text-zinc-900">Información de interés</h2>
+          <p className="text-zinc-500 mt-1">Comunicados, recursos y aportes útiles para quienes participan en {TENANT.name}.</p>
         </div>
-        {isAdminLike(currentUser) && (
+        {canPublish && (
           <button
             type="button"
             onClick={() => {
@@ -298,18 +442,37 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
             }}
             className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold flex items-center shadow-sm hover:bg-blue-700 transition-colors"
           >
-            {showForm ? 'Cancelar' : <><PlusCircle className="w-5 h-5 mr-2" /> Publicar Noticia</>}
+            {showForm ? 'Cancelar' : <><PlusCircle className="w-5 h-5 mr-2" /> Publicar información</>}
           </button>
         )}
       </div>
+
+      {visibleNews.length > 0 && categoriesToShow.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2 -mt-1">
+          <label htmlFor="news-category-filter" className="text-xs text-zinc-500 shrink-0">
+            Filtrar por categoría
+          </label>
+          <select
+            id="news-category-filter"
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="text-sm text-zinc-800 bg-white/90 border border-zinc-200/90 rounded-lg px-2.5 py-1 min-w-0 max-w-[min(100%,14rem)] shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-300"
+          >
+            <option value="">Todas</option>
+            {categoriesToShow.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {showForm && (
         <div className="bg-white/85 backdrop-blur p-8 rounded-3xl border border-blue-100/40 shadow-md space-y-6 animate-in slide-in-from-top-4">
           <h3 className="text-xl font-bold flex items-center">
             <Newspaper className="mr-2 text-blue-600" />
-            {editingId != null ? 'Editar Noticia' : 'Redactar Nueva Noticia'}
+            {editingId != null ? 'Editar entrada' : 'Nueva entrada'}
           </h3>
-          {aiEnabled && <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+          {aiEnabled && isModerator && <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3">
             <button
               type="button"
               onClick={() => void handleAiPolish()}
@@ -348,7 +511,7 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
                   onChange={(e) => setForm({ ...form, category: e.target.value })}
                   className="w-full p-4 border rounded-xl bg-zinc-50 outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 >
-                  {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {NEWS_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
@@ -429,7 +592,7 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
               disabled={saving}
               className="w-full bg-blue-600 text-white p-4 rounded-xl font-black flex justify-center items-center disabled:opacity-50 hover:bg-blue-700 transition-colors"
             >
-              {saving ? <><Loader2 className="animate-spin mr-2" /> Guardando...</> : editingId != null ? 'Guardar cambios' : 'Publicar Noticia'}
+              {saving ? <><Loader2 className="animate-spin mr-2" /> Guardando...</> : editingId != null ? 'Guardar cambios' : 'Publicar información'}
             </button>
           </form>
         </div>
@@ -438,13 +601,32 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
       {(db.news || []).length === 0 && !showForm && (
         <div className="rounded-3xl border border-dashed border-blue-200 bg-blue-50/40 px-6 py-12 text-center">
           <Newspaper className="w-12 h-12 text-blue-400 mx-auto mb-4 opacity-80" />
-          <p className="text-zinc-800 font-bold text-lg mb-1">Aún no hay noticias</p>
-          <p className="text-zinc-500 text-sm">Cuando publiquen comunicados en el portal, aparecerán aquí.</p>
+          <p className="text-zinc-800 font-bold text-lg mb-1">Aún no hay entradas</p>
+          <p className="text-zinc-500 text-sm">Cuando alguien publique información aquí, aparecerá en este listado.</p>
+        </div>
+      )}
+
+      {visibleNews.length === 0 && (db.news || []).length > 0 && !showForm && (
+        <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50/60 px-6 py-10 text-center">
+          <p className="text-zinc-800 font-bold mb-1">No hay contenido visible para tu cuenta</p>
+          <p className="text-zinc-500 text-sm">Si publicaste algo y no lo ves, puede haber sido retirado por moderación.</p>
+        </div>
+      )}
+
+      {filteredNews.length === 0 && visibleNews.length > 0 && !showForm && (
+        <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/60 px-5 py-8 text-center">
+          <p className="text-zinc-800 font-bold text-sm mb-1">Nada en esta categoría</p>
+          <p className="text-zinc-500 text-xs">Prueba otra categoría o pulsa «Todas».</p>
         </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {(db.news || []).map((post) => (
+        {filteredNews.map((post) => {
+          const isOwner = post.authorUsername === currentUser.username
+          const showModBanner = post.adminSuppressed
+          const canCardEdit = canEditPost(post)
+          const canCardDelete = canDeletePost(post)
+          return (
           <article
             key={post.id}
             role="button"
@@ -453,12 +635,19 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedPost(post) } }}
             className="relative bg-white/85 backdrop-blur rounded-3xl overflow-hidden border border-zinc-100 shadow-sm flex flex-col group cursor-pointer hover:shadow-lg hover:-translate-y-1 transition-all duration-300"
           >
-            {isAdminLike(currentUser) && (
+            {showModBanner && (
+              <div className="px-3 py-2 text-[11px] font-black uppercase tracking-wide bg-rose-100 text-rose-900 border-b border-rose-200 flex items-center gap-2">
+                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                {isOwner && !isModerator ? 'Retirada del público (moderación)' : 'Retirada del público'}
+              </div>
+            )}
+            {(canCardEdit || canCardDelete) && (
               <div
-                className="absolute top-3 right-3 z-20 flex gap-1.5"
+                className={`absolute right-3 z-20 flex gap-1.5 ${showModBanner ? 'top-12' : 'top-3'}`}
                 onClick={(e) => e.stopPropagation()}
                 role="presentation"
               >
+                {canCardEdit && (
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); openEdit(post) }}
@@ -466,6 +655,8 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
                 >
                   <Edit3 className="w-4 h-4" />
                 </button>
+                )}
+                {canCardDelete && (
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); requestDelete(post) }}
@@ -473,6 +664,7 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
+                )}
               </div>
             )}
             <div className="aspect-video relative overflow-hidden bg-zinc-100">
@@ -489,7 +681,7 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/60 to-transparent" />
               <span className="absolute top-4 left-4 bg-blue-600 text-white text-[10px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest">
-                {post.category}
+                {normalizeNewsCategory(post)}
               </span>
             </div>
             <div className="p-5 flex-1 flex flex-col">
@@ -501,9 +693,40 @@ const NewsView = ({ currentUser, db, addNewsPost, updateNewsPost, deleteNewsPost
                 <span className="flex items-center"><User className="w-3.5 h-3.5 mr-1.5" /> {post.author}</span>
                 <span className="flex items-center"><Calendar className="w-3.5 h-3.5 mr-1.5" /> {displayPortalDate(post.date)}</span>
               </div>
+              {showReactions && (
+                <ReactionBar
+                  db={firestoreDb}
+                  appContext={PORTAL_REACTION_APP_CONTEXT}
+                  contentType="news"
+                  contentId={post.id}
+                  userId={reactionUserId}
+                />
+              )}
+              {isModerator && (
+                <div className="mt-3 pt-3 border-t border-zinc-100" onClick={(e) => e.stopPropagation()} role="presentation">
+                  {!post.adminSuppressed ? (
+                    <button
+                      type="button"
+                      onClick={() => handleAdminSuppress(post)}
+                      className="w-full py-2 rounded-xl text-[11px] font-black border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"
+                    >
+                      Retirar del público
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleAdminRestore(post)}
+                      className="w-full py-2 rounded-xl text-[11px] font-black border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                    >
+                      Restaurar en el público
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </article>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

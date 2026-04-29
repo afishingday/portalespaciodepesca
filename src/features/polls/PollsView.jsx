@@ -7,6 +7,9 @@ import {
   coerceSurveyOptionId, requestPolishedText,
 } from '../../shared/utils.js'
 import { fetchGeminiSurveyOptions, fetchGeminiDescriptionFromTitle, isGeminiConfigured, getLastGeminiDetail } from '../../geminiClient.js'
+import { db as firestoreDb, useLocalPortalData } from '../../firebase.js'
+import ReactionBar from '../../reactions/ReactionBar.jsx'
+import { PORTAL_REACTION_APP_CONTEXT } from '../../shared/portalReactionsContext.js'
 
 const GuestBanner = ({ onRegisterRequest }) => (
   <div className="bg-blue-50 border border-blue-200 rounded-3xl p-6 flex flex-col md:flex-row items-center justify-between gap-5 mb-6 shadow-sm">
@@ -41,6 +44,8 @@ const PollsView = ({ currentUser, db, savePoll, deletePoll, logAction, showAlert
   const isGuestUser = isGuest(currentUser)
   const canManage = isAdminLike(currentUser)
   const aiEnabled = isGeminiConfigured()
+  const reactionUserId = currentUser.role === 'guest' ? null : currentUser.username
+  const showReactions = !useLocalPortalData && firestoreDb
 
   const voterListKey = (pollId, optionId) => `${pollId}::${String(optionId)}`
 
@@ -66,7 +71,7 @@ const PollsView = ({ currentUser, db, savePoll, deletePoll, logAction, showAlert
     else newVotes.push(voteEntry)
 
     try {
-      await savePoll({ ...poll, survey: { ...poll.survey, votes: newVotes } })
+      await savePoll({ ...poll, survey: { ...(poll.survey || {}), votes: newVotes } })
       logAction?.('VOTAR', `Votó en encuesta: ${poll.title}`)
       showAlert('Tu voto ha sido registrado.')
     } catch { showAlert('No se pudo registrar el voto.') }
@@ -311,6 +316,16 @@ const PollsView = ({ currentUser, db, savePoll, deletePoll, logAction, showAlert
                 </span>
               </div>
               <p className="text-zinc-600 mb-2 text-sm">{poll.excerpt}</p>
+              {showReactions && (
+                <ReactionBar
+                  db={firestoreDb}
+                  appContext={PORTAL_REACTION_APP_CONTEXT}
+                  contentType="polls"
+                  contentId={poll.id}
+                  userId={reactionUserId}
+                  className="mb-3"
+                />
+              )}
               {remaining && !isClosed && (
                 <p className="text-xs font-bold text-cyan-700 bg-cyan-50 border border-cyan-200 px-3 py-1.5 rounded-lg inline-block mb-4">{remaining}</p>
               )}

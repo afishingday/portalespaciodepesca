@@ -12,6 +12,9 @@ import {
   isProposalConvertPollGeminiConfigured,
   getLastGeminiDetail,
 } from '../../geminiClient.js'
+import { db as firestoreDb, useLocalPortalData } from '../../firebase.js'
+import ReactionBar from '../../reactions/ReactionBar.jsx'
+import { PORTAL_REACTION_APP_CONTEXT } from '../../shared/portalReactionsContext.js'
 
 function emptyProposalPollConvForm(proposalTitle = 'esta propuesta') {
   const t = Date.now()
@@ -55,6 +58,8 @@ const ProposalsView = ({ currentUser, db, saveProposal, deleteProposal, convertP
   const isGuestUser = isGuest(currentUser)
   const canManage = isAdminLike(currentUser)
   const aiEnabled = isGeminiConfigured()
+  const reactionUserId = currentUser.role === 'guest' ? null : currentUser.username
+  const showReactions = !useLocalPortalData && firestoreDb
 
   const resetForm = () => { setShowForm(false); setEditingId(null); setDraft({ title: '', excerpt: '' }) }
 
@@ -464,6 +469,16 @@ const ProposalsView = ({ currentUser, db, saveProposal, deleteProposal, convertP
               </div>
               <h4 className="text-xl font-black text-zinc-900 mb-2 pr-16">{prop.title}</h4>
               <p className="text-zinc-600 text-sm font-medium">{prop.excerpt}</p>
+              {showReactions && (
+                <ReactionBar
+                  db={firestoreDb}
+                  appContext={PORTAL_REACTION_APP_CONTEXT}
+                  contentType="proposals"
+                  contentId={prop.id}
+                  userId={reactionUserId}
+                  className="mt-3"
+                />
+              )}
               {canManage && (
                 <div className="flex flex-wrap gap-2 mt-5 pt-4 border-t border-zinc-100">
                   <button

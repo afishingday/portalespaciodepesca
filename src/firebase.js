@@ -1,6 +1,9 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore } from 'firebase/firestore'
 import { getStorage } from 'firebase/storage'
+import { registerAppContext } from './reactions/registry.js'
+import { ESPACIO_PESCA_REACTIONS_SPEC } from './reactions/espacioPescaContext.js'
+import { PORTAL_REACTION_APP_CONTEXT } from './shared/portalReactionsContext.js'
 
 const forceLocal = import.meta.env.VITE_USE_LOCAL_DATA === 'true'
 const hasFirebaseConfig = Boolean(String(import.meta.env.VITE_FIREBASE_API_KEY || '').trim())
@@ -26,6 +29,7 @@ if (!useLocalPortalData) {
   app = initializeApp(firebaseConfig)
   db = getFirestore(app)
   storage = getStorage(app)
+  registerAppContext(PORTAL_REACTION_APP_CONTEXT, ESPACIO_PESCA_REACTIONS_SPEC)
 }
 
 export { app, db, storage }

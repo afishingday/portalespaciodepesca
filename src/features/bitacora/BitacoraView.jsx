@@ -8,6 +8,9 @@ import {
 } from '../../firestore/uploadEntityImage.js'
 import { ImageCropDialog } from '../../shared/ImageCropDialog.jsx'
 import { RECORD_SPECIES_OPTIONS, defaultRecordSpeciesSelect } from '../../shared/fishingSpecies.js'
+import { db as firestoreDb, useLocalPortalData } from '../../firebase.js'
+import ReactionBar from '../../reactions/ReactionBar.jsx'
+import { PORTAL_REACTION_APP_CONTEXT } from '../../shared/portalReactionsContext.js'
 
 const emptyForm = () => ({
   species: defaultRecordSpeciesSelect(),
@@ -24,6 +27,8 @@ const BitacoraView = ({ currentUser, db, saveBitacoraEntry, deleteBitacoraEntry,
   const [imageFile, setImageFile] = useState(null)
   const [imageCropSource, setImageCropSource] = useState(null)
   const isGuestUser = isGuest(currentUser)
+  const reactionUserId = isGuestUser ? null : currentUser.username
+  const showReactions = !useLocalPortalData && firestoreDb
 
   const myEntries = (db.bitacora || []).filter((e) => e.username === currentUser.username)
 
@@ -241,6 +246,16 @@ const BitacoraView = ({ currentUser, db, saveBitacoraEntry, deleteBitacoraEntry,
                 {entry.bait && <p className="flex items-center gap-1.5"><Fish className="w-3.5 h-3.5 text-cyan-400" />{entry.bait}</p>}
               </div>
               {entry.notes && <p className="text-zinc-600 text-xs mt-3 leading-relaxed line-clamp-2">{entry.notes}</p>}
+              {showReactions && (
+                <ReactionBar
+                  db={firestoreDb}
+                  appContext={PORTAL_REACTION_APP_CONTEXT}
+                  contentType="bitacora"
+                  contentId={entry.id}
+                  userId={reactionUserId}
+                  className="mt-3"
+                />
+              )}
             </div>
           </div>
         ))}

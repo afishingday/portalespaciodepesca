@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Newspaper, BookMarked, Megaphone, CheckSquare, CalendarDays, Trophy,
-  Video, Fish, BookOpen, Users, ScrollText, Layers,
+  Video, Fish, BookOpen, Users, ScrollText,
   Menu, X, Info, AlertCircle, Loader2, LogOut, KeyRound, Eye, EyeOff,
   Handshake, MapPinned, UserCircle, Scale, Droplets,
 } from 'lucide-react'
@@ -42,6 +42,9 @@ import {
   updateUserProfile,
   updateUserPlainPassword,
   updatePortalSectionSettings,
+  acceptTerms,
+  savePublicSettings,
+  getStorageUsage,
 } from './firestore/portalData.js'
 import { savePortalSession, clearPortalSession, readPortalSession } from './portalSession.js'
 import { setPortalAnalyticsUser, trackPortalEvent } from './analytics.js'
@@ -50,14 +53,17 @@ import {
   mergeSectionVisibility,
   mergeSectionOrder,
   isPortalContentSection,
+  PORTAL_CONTENT_SECTION_IDS,
   PORTAL_SECTION_LABELS,
 } from './shared/portalSectionConfig.js'
 import { passwordChangeErrorMessage } from './shared/portalErrors.js'
 import { checkStrongPassword } from './shared/utils.js'
+import { applyTheme, DEFAULT_THEME_ID } from './shared/portalThemes.js'
 import { TENANT } from './tenant.config.js'
 import { BRAND_LOGO_SRC } from './brandAssets.js'
 import { useLocalPortalData } from './firebase.js'
 import ErrorBoundary from './shared/ErrorBoundary.jsx'
+import TermsModal from './shared/TermsModal.jsx'
 import PortalFooter from './shared/PortalFooter.jsx'
 import LoginView from './features/login/LoginView.jsx'
 import NewsView from './features/news/NewsView.jsx'
@@ -229,6 +235,7 @@ function PortalApp() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [dialog, setDialog] = useState(null)
   const [mustChangePwd, setMustChangePwd] = useState(false)
+  const [acceptingTerms, setAcceptingTerms] = useState(false)
 
   useEffect(() => {
     let unsub = () => {}
@@ -305,6 +312,24 @@ function PortalApp() {
     else setMustChangePwd(false)
   }, [dataReady, db.users, currentUser?.username, currentUser?.role])
 
+  const handleAcceptTerms = async () => {
+    if (!currentUser?.username) return
+    setAcceptingTerms(true)
+    try {
+      await acceptTerms(currentUser.username, TENANT.legal.termsVersion)
+      appendLog({
+        user: currentUser.username,
+        action: 'ACEPTO_TERMINOS',
+        details: `Términos v${TENANT.legal.termsVersion}`,
+        timestamp: new Date().toLocaleString('es-CO'),
+      }).catch(console.error)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setAcceptingTerms(false)
+    }
+  }
+
   const logAction = useCallback((action, details) => {
     if (!currentUser) return
     appendLog({
@@ -329,6 +354,10 @@ function PortalApp() {
     })
   }, [activeTab, currentUser?.username, currentUser?.role])
 
+  useEffect(() => {
+    applyTheme(db.settings?.portalTheme ?? DEFAULT_THEME_ID)
+  }, [db.settings?.portalTheme])
+
   const sectionVisibility = useMemo(() => mergeSectionVisibility(db.settings?.sections), [db.settings?.sections])
   const sectionOrder = useMemo(() => mergeSectionOrder(db.settings?.sectionOrder), [db.settings?.sectionOrder])
   const contentNav = useMemo(
@@ -336,14 +365,25 @@ function PortalApp() {
     [sectionOrder],
   )
 
+  /** Pestañas permitidas para el superadmin: mismas secciones de contenido que el resto + administración. */
+  const SUPERADMIN_MENU_TABS = useMemo(
+    () => new Set(['profile', 'logs', 'admin', 'sections', 'legal', ...PORTAL_CONTENT_SECTION_IDS]),
+    [],
+  )
+
   useEffect(() => {
     if (!isPortalContentSection(activeTab)) return
     if (sectionVisibility[activeTab] !== false) return
     const next = sectionOrder.find((id) => sectionVisibility[id] !== false)
     if (next) setActiveTab(next)
-    else if (currentUser?.role === 'superadmin') setActiveTab('sections')
+    else if (currentUser?.role === 'superadmin') setActiveTab('admin')
     else if (currentUser?.role === 'admin') setActiveTab('admin')
   }, [activeTab, sectionVisibility, sectionOrder, currentUser?.role])
+
+  useEffect(() => {
+    if (currentUser?.role !== 'superadmin') return
+    if (!SUPERADMIN_MENU_TABS.has(activeTab)) setActiveTab('admin')
+  }, [currentUser?.role, activeTab])
 
   useEffect(() => {
     if (currentUser?.role !== 'guest') return
@@ -412,21 +452,40 @@ function PortalApp() {
     )
   }
 
+  const currentUserRow = (db.users || []).find((u) => u.username === currentUser.username)
+  const needsTermsAcceptance = Boolean(
+    currentUser.role !== 'guest' &&
+    TENANT.legal?.termsVersion &&
+    currentUserRow &&
+    currentUserRow.termsAcceptedVersion !== TENANT.legal.termsVersion,
+  )
+
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'superadmin'
   const isSuperadmin = currentUser.role === 'superadmin'
   const pendingCount = (db.pendingUsers || []).length
 
-  const menu = [
-    ...contentNav.filter((item) => {
-      if (sectionVisibility[item.id] === false) return false
-      if (item.membersOnly && currentUser.role === 'guest') return false
-      return true
-    }),
-    ...(currentUser.role !== 'guest' ? [{ id: 'profile', label: 'Mi perfil', icon: UserCircle }] : []),
-    ...(isAdmin ? [{ id: 'admin', label: 'Cuentas', icon: Users }] : []),
-    ...(isAdmin ? [{ id: 'logs', label: 'Actividad', icon: ScrollText }] : []),
-    ...(isSuperadmin ? [{ id: 'sections', label: 'Secciones', icon: Layers }] : []),
-  ]
+  const superadminNavHidden = isSuperadmin ? new Set(currentUserRow?.superadminNavHidden || []) : null
+
+  const contentNavFiltered = contentNav.filter((item) => {
+    if (sectionVisibility[item.id] === false) return false
+    if (item.membersOnly && currentUser.role === 'guest') return false
+    if (superadminNavHidden?.has(item.id)) return false
+    return true
+  })
+
+  const menu = isSuperadmin
+    ? [
+        ...contentNavFiltered,
+        { id: 'profile', label: 'Perfil', icon: UserCircle },
+        { id: 'logs', label: 'Registro de actividad', icon: ScrollText },
+        { id: 'admin', label: 'Administrar cuentas', icon: Users },
+      ]
+    : [
+        ...contentNavFiltered,
+        ...(currentUser.role !== 'guest' ? [{ id: 'profile', label: 'Mi perfil', icon: UserCircle }] : []),
+        ...(isAdmin ? [{ id: 'admin', label: 'Administrar cuentas', icon: Users }] : []),
+        ...(isAdmin ? [{ id: 'logs', label: 'Actividad', icon: ScrollText }] : []),
+      ]
 
   const logout = () => {
     void trackPortalEvent('portal_logout', { role: currentUser?.role || 'unknown' })
@@ -502,7 +561,10 @@ function PortalApp() {
         </div>
       )}
 
-      {mustChangePwd && (
+      {needsTermsAcceptance && (
+        <TermsModal onAccept={handleAcceptTerms} accepting={acceptingTerms} />
+      )}
+      {!needsTermsAcceptance && mustChangePwd && (
         <ForcePwdModal
           currentUser={currentUser}
           onSuccess={() => {
@@ -566,11 +628,11 @@ function PortalApp() {
                 }}
                 className={`w-full flex items-center px-4 py-3 rounded-xl text-sm font-bold transition-colors ${
                   activeTab === item.id
-                    ? 'bg-blue-900/8 text-blue-950 ring-1 ring-blue-300/50'
+                    ? 'bg-pt-50/60 text-pt-900 ring-1 ring-pt-200/70'
                     : 'text-zinc-700 hover:bg-white/70 hover:text-zinc-900'
                 }`}
               >
-                <item.icon className={`w-5 h-5 mr-3 shrink-0 ${activeTab === item.id ? 'text-green-700' : 'text-zinc-400'}`} />
+                <item.icon className={`w-5 h-5 mr-3 shrink-0 ${activeTab === item.id ? 'text-pt-600' : 'text-zinc-400'}`} />
                 <span className="flex-1 text-left">{item.label}</span>
                 {hasBadge && (
                   <span className="bg-red-500 text-white text-[10px] font-black rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
@@ -639,6 +701,7 @@ function PortalApp() {
                   addNewsPost={addNewsPost}
                   updateNewsPost={updateNewsPost}
                   deleteNewsPost={deleteNewsPost}
+                  logAction={logAction}
                   showAlert={showAlert}
                   showConfirm={showConfirm}
                 />
@@ -774,6 +837,9 @@ function PortalApp() {
                   logAction={logAction}
                   showAlert={showAlert}
                   showConfirm={showConfirm}
+                  onOpenPortalSections={isSuperadmin ? () => setActiveTab('sections') : undefined}
+                  savePublicSettings={savePublicSettings}
+                  getStorageUsage={getStorageUsage}
                 />
               )}
               {activeTab === 'logs' && isAdmin && <LogsView db={db} />}
@@ -783,6 +849,7 @@ function PortalApp() {
                   updatePortalSectionSettings={updatePortalSectionSettings}
                   logAction={logAction}
                   showAlert={showAlert}
+                  onBack={() => setActiveTab('admin')}
                 />
               )}
             </div>

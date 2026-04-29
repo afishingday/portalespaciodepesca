@@ -82,7 +82,7 @@ export function subscribePortalDb(setDb, onReady) {
       const sectionOrder = mergeSectionOrder(data.sectionOrder)
       setDb((prev) => ({
         ...prev,
-        settings: { ...(prev.settings && typeof prev.settings === 'object' ? prev.settings : {}), sections, sectionOrder },
+        settings: { ...data, sections, sectionOrder },
       }))
       mark('__settings__')
     },
@@ -306,4 +306,54 @@ export async function updatePortalSectionSettings({ sections, sectionOrder } = {
 
 export async function updatePortalSectionVisibility(sections) {
   await updatePortalSectionSettings({ sections })
+}
+
+export async function acceptTerms(userId, version) {
+  const resolved = await resolveUserDocument(userId)
+  if (!resolved) return
+  await setDoc(resolved.ref, { termsAcceptedVersion: version, termsAcceptedAt: Date.now() }, { merge: true })
+}
+
+export async function savePublicSettings(partial) {
+  await setDoc(
+    doc(db, 'settings', SETTINGS_DOC_ID),
+    stripForFirestore({ updatedAt: Date.now(), ...partial }),
+    { merge: true },
+  )
+}
+
+const STORAGE_ROOTS = ['news', 'events', 'bitacora', 'laganaWallPosts', 'records', 'profileAvatars']
+
+async function listFilesRecursive(folderRef) {
+  const { listAll } = await import('firebase/storage')
+  const items = []
+  const list = await listAll(folderRef)
+  items.push(...list.items)
+  for (const prefix of list.prefixes) {
+    const nested = await listFilesRecursive(prefix)
+    items.push(...nested)
+  }
+  return items
+}
+
+export async function getStorageUsage() {
+  const { ref, listAll, getMetadata } = await import('firebase/storage')
+  const { storage } = await import('../firebase.js')
+  const byFolder = {}
+  let totalBytes = 0
+  let totalFiles = 0
+  for (const root of STORAGE_ROOTS) {
+    const items = await listFilesRecursive(ref(storage, root))
+    let folderBytes = 0
+    for (const item of items) {
+      try {
+        const meta = await getMetadata(item)
+        folderBytes += meta.size || 0
+      } catch {}
+    }
+    byFolder[root] = { bytes: folderBytes, count: items.length }
+    totalBytes += folderBytes
+    totalFiles += items.length
+  }
+  return { byFolder, totalBytes, totalFiles }
 }

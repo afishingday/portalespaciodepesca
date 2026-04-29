@@ -12,6 +12,9 @@ import {
 import { ImageCropDialog } from '../../shared/ImageCropDialog.jsx'
 import { RECORD_SPECIES_OPTIONS, defaultRecordSpeciesSelect } from '../../shared/fishingSpecies.js'
 import { isPublicOnClubWall, recordShownInRecordsGrid } from '../../shared/recordVisibility.js'
+import { db as firestoreDb, useLocalPortalData } from '../../firebase.js'
+import ReactionBar from '../../reactions/ReactionBar.jsx'
+import { PORTAL_REACTION_APP_CONTEXT } from '../../shared/portalReactionsContext.js'
 
 const emptyForm = () => ({
   species: defaultRecordSpeciesSelect(),
@@ -30,6 +33,8 @@ const LaganaWallView = ({ currentUser, db, saveLaganaWallPost, deleteLaganaWallP
   const [filterSpecies, setFilterSpecies] = useState('')
   const canManage = isAdminLike(currentUser)
   const isGuestUser = isGuest(currentUser)
+  const reactionUserId = isGuestUser ? null : currentUser.username
+  const showReactions = !useLocalPortalData && firestoreDb
 
   const postsList = db.laganaWallPosts || []
 
@@ -83,11 +88,20 @@ const LaganaWallView = ({ currentUser, db, saveLaganaWallPost, deleteLaganaWallP
     const recordId = isEditing ? editingId : Date.now()
     const prevForMerge = isEditing ? postsList.find((p) => String(p.id) === String(editingId)) : null
 
+    const hasImageInput = Boolean(imageFile) || Boolean(String(form.image || '').trim()) || Boolean(prevForMerge?.image)
+    if (!hasImageInput) {
+      return showAlert('La foto es obligatoria para publicar en el muro (igual que en récords).')
+    }
+
     setSaving(true)
     try {
       const imageUrl = imageFile
         ? await uploadEntityImageFile(imageFile, 'laganaWallPosts', recordId)
         : (form.image || prevForMerge?.image || null)
+      if (!imageUrl) {
+        setSaving(false)
+        return showAlert('La foto es obligatoria para publicar en el muro.')
+      }
       const post = {
         ...(prevForMerge || {}),
         id: recordId,
@@ -180,7 +194,7 @@ const LaganaWallView = ({ currentUser, db, saveLaganaWallPost, deleteLaganaWallP
       <ImageCropDialog
         open={imageCropSource != null}
         file={imageCropSource}
-        title="Recorta la foto (opcional)"
+        title="Recorta la foto (obligatoria)"
         onCancel={() => setImageCropSource(null)}
         onConfirm={(cropped) => {
           setImageFile(cropped)
@@ -195,8 +209,8 @@ const LaganaWallView = ({ currentUser, db, saveLaganaWallPost, deleteLaganaWallP
             Muro de las Lagañas
           </h2>
           <p className="text-zinc-500 mt-1 max-w-3xl leading-relaxed">
-            El rincón del <span className="font-bold text-zinc-700">pez más chiquito</span> que sacaste: sin peso ni medida, solo la especie y el lugar
-            (y si quieres, una foto para reírse con cariño). Nada de competir: es humor de club.
+            El rincón del <span className="font-bold text-zinc-700">pez más chiquito</span> que sacaste: sin peso ni medida, solo la especie, el lugar y
+            <span className="font-bold text-zinc-700"> una foto obligatoria</span> para reírse con cariño. Nada de competir: es humor de club.
           </p>
         </div>
         {!isGuestUser && (
@@ -230,7 +244,7 @@ const LaganaWallView = ({ currentUser, db, saveLaganaWallPost, deleteLaganaWallP
                 <input required value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Ej: Charco de la esquina, represa…" className="w-full p-3 border border-zinc-200 rounded-xl bg-zinc-50 outline-none focus:ring-2 focus:ring-sky-500" />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-bold text-zinc-700 mb-1">Foto (opcional)</label>
+                <label className="block text-sm font-bold text-zinc-700 mb-1">Foto *</label>
                 <label className="w-full p-3 border border-zinc-200 rounded-xl bg-zinc-50 outline-none focus-within:ring-2 focus-within:ring-sky-500 flex items-center gap-2 cursor-pointer">
                   <UploadCloud className="w-4 h-4 text-sky-600" />
                   <span className="text-sm text-zinc-700 truncate">{imageFile ? imageFile.name : 'Subir desde tu dispositivo'}</span>
@@ -252,7 +266,7 @@ const LaganaWallView = ({ currentUser, db, saveLaganaWallPost, deleteLaganaWallP
                   />
                 </label>
                 <p className="mt-1 text-xs text-zinc-500">
-                  Si subes foto, es solo por el meme; no hace falta medir ni pesar al bichito.
+                  Obligatoria (como en récords). No hace falta medir ni pesar al bichito.
                 </p>
               </div>
               <div className="md:col-span-2 flex items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4">
@@ -414,6 +428,16 @@ const LaganaWallView = ({ currentUser, db, saveLaganaWallPost, deleteLaganaWallP
                   <p className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-sky-400 shrink-0" />{post.location}</p>
                   <p className="flex items-center gap-1.5"><User className="w-3.5 h-3.5 text-sky-400 shrink-0" />{post.angler} {isOwner && !isGuestUser && '(Tú)'}</p>
                 </div>
+                {showReactions && (
+                  <ReactionBar
+                    db={firestoreDb}
+                    appContext={PORTAL_REACTION_APP_CONTEXT}
+                    contentType="laganaWall"
+                    contentId={post.id}
+                    userId={reactionUserId}
+                    className="mt-3"
+                  />
+                )}
                 {isOwner && !isGuestUser && (
                   <div className="mt-4 pt-3 border-t border-zinc-100">
                     <button

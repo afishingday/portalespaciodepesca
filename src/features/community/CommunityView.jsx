@@ -20,6 +20,9 @@ import { TENANT } from '../../tenant.config.js'
 import { BRAND_LOGO_SRC } from '../../brandAssets.js'
 import { todayIsoDate, displayPortalDate, parseToIsoDate } from '../../shared/portalDates.js'
 import { serviceTypeLabel } from '../../shared/fishingServiceTypes.js'
+import { db as firestoreDb, useLocalPortalData } from '../../firebase.js'
+import ReactionBar from '../../reactions/ReactionBar.jsx'
+import { PORTAL_REACTION_APP_CONTEXT } from '../../shared/portalReactionsContext.js'
 
 const cardShell = 'w-full max-w-xl mx-auto bg-white/95 rounded-[2rem] shadow-xl shadow-blue-100/40 border border-blue-100/50 overflow-hidden'
 
@@ -64,6 +67,8 @@ export default function CommunityView({ currentUser, db, saveCommunityPost, dele
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const isGuestUser = isGuest(currentUser)
+  const reactionUserId = isGuestUser ? null : currentUser.username
+  const showReactions = !useLocalPortalData && firestoreDb
   const posts = useMemo(() => [...(db.communityPosts || [])].sort((a, b) => Number(b.id) - Number(a.id)), [db.communityPosts])
 
   const resetForm = () => {
@@ -103,6 +108,7 @@ export default function CommunityView({ currentUser, db, saveCommunityPost, dele
       const id = isEdit ? editingId : Date.now()
       const date = isEdit && prev?.date ? prev.date : todayIsoDate()
       await saveCommunityPost({
+        ...(prev || {}),
         id,
         memberName,
         serviceType,
@@ -344,6 +350,16 @@ export default function CommunityView({ currentUser, db, saveCommunityPost, dele
                     <Calendar className="w-3.5 h-3.5" /> {displayPortalDate(parseToIsoDate(p.date))}
                   </span>
                 </div>
+                {showReactions && (
+                  <ReactionBar
+                    db={firestoreDb}
+                    appContext={PORTAL_REACTION_APP_CONTEXT}
+                    contentType="communityPosts"
+                    contentId={p.id}
+                    userId={reactionUserId}
+                    className="mt-3"
+                  />
+                )}
               </article>
             )
           })

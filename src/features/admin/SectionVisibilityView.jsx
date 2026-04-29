@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Eye, EyeOff, Layers, Loader2, ChevronUp, ChevronDown } from 'lucide-react'
+import { Eye, EyeOff, Layers, Loader2, ChevronUp, ChevronDown, ArrowLeft } from 'lucide-react'
 import {
   mergeSectionVisibility,
   mergeSectionOrder,
@@ -7,7 +7,7 @@ import {
   PORTAL_SECTION_LABELS,
 } from '../../shared/portalSectionConfig.js'
 
-export default function SectionVisibilityView({ db, updatePortalSectionSettings, logAction, showAlert }) {
+export default function SectionVisibilityView({ db, updatePortalSectionSettings, logAction, showAlert, onBack }) {
   const merged = useMemo(() => mergeSectionVisibility(db.settings?.sections), [db.settings?.sections])
   const orderedIds = useMemo(() => mergeSectionOrder(db.settings?.sectionOrder), [db.settings?.sectionOrder])
   const [busyId, setBusyId] = useState(null)
@@ -51,6 +51,16 @@ export default function SectionVisibilityView({ db, updatePortalSectionSettings,
 
   return (
     <div className="space-y-6 animate-in fade-in">
+      {typeof onBack === 'function' && (
+        <button
+          type="button"
+          onClick={() => onBack()}
+          className="inline-flex items-center text-blue-700 font-bold hover:text-blue-800 bg-white px-4 py-2 rounded-xl shadow-sm border border-blue-100 text-sm"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2 shrink-0" />
+          Volver a administrar cuentas
+        </button>
+      )}
       <div>
         <h2 className="text-3xl font-black text-zinc-900 flex items-center gap-2">
           <Layers className="w-8 h-8 text-blue-700 shrink-0" />

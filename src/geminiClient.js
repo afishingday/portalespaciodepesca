@@ -398,6 +398,45 @@ export async function fetchGeminiDescriptionFromTitle(title, mode = 'proposal') 
   return description ? { description } : null
 }
 
+/**
+ * Directorio de Pesca: detecta si la nueva ficha parece la misma que una existente (nombre, contacto, redes).
+ * @param {{ name: string, phone?: string, email?: string, webSocial?: string, municipality?: string, description?: string }} newEntry
+ * @param {Array<{ name?: string, phone?: string, email?: string, webSocial?: string }>} existingRows — ya excluida la ficha en edición
+ */
+export async function fetchGeminiDirectoryDuplicateCheck(newEntry, existingRows) {
+  const name = String(newEntry?.name ?? '').trim()
+  if (!name || !Array.isArray(existingRows) || existingRows.length === 0) return null
+
+  const desc = String(newEntry?.description ?? '').trim().slice(0, 400)
+  const lines = existingRows.slice(0, 45).map((row, i) => {
+    const n = String(row?.name ?? '').trim()
+    const ph = String(row?.phone ?? '').trim()
+    const em = String(row?.email ?? '').trim()
+    const ws = String(row?.webSocial ?? '').trim().slice(0, 160)
+    const mun = String(row?.municipality ?? '').trim()
+    return `${i + 1}. «${n}» | ${mun || '—'} | Tel: ${ph || '—'} | Email: ${em || '—'} | Redes: ${ws || '—'}`
+  }).join('\n')
+
+  const P = geminiPrompts()
+  const { data, ok } = await generateJsonWithFallback({
+    temperature: 0.1,
+    systemText: expandGeminiTemplate(P.directoryDuplicateCheckSystem || ''),
+    userText:
+      `NUEVA FICHA:\nNombre: "${name}"\nMunicipio/zona: "${String(newEntry?.municipality ?? '').trim()}"\n` +
+      `Tel: "${String(newEntry?.phone ?? '').trim()}"\nEmail: "${String(newEntry?.email ?? '').trim()}"\n` +
+      `Web/redes: "${String(newEntry?.webSocial ?? '').trim().slice(0, 300)}"\n` +
+      `Descripción (extracto): "${desc}"\n\n` +
+      `FICHAS EXISTENTES EN EL DIRECTORIO:\n${lines}`,
+    jsonShapeHint: P.directoryDuplicateCheckJsonHint || '',
+  })
+  if (!ok || !data) return null
+  return {
+    hasDuplicateRisk: Boolean(data.hasDuplicateRisk),
+    reason: String(data.reason ?? '').trim(),
+    matchingNames: Array.isArray(data.matchingNames) ? data.matchingNames.filter(Boolean).map((s) => String(s).trim()) : [],
+  }
+}
+
 export async function fetchGeminiDuplicateCheck(newTitle, newExcerpt, existingItems) {
   if (!newTitle?.trim() || !existingItems?.length) return null
 

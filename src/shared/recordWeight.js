@@ -44,3 +44,30 @@ export function findPersonalBestRecord(records, username, species) {
   }
   return best
 }
+
+/**
+ * Longitud total almacenada en `lengthCm` (número en centímetros).
+ * @param {unknown} record
+ * @returns {number}
+ */
+export function parseRecordLengthCm(record) {
+  const n = Number(record?.lengthCm)
+  if (!Number.isFinite(n) || n <= 0) return NaN
+  return n
+}
+
+/**
+ * Texto para tarjetas y detalle: peso tal como se guardó (ej. "28 lb") y/o "92 cm".
+ */
+export function formatRecordSizeDisplay(record) {
+  const parts = []
+  const ws = String(record?.weight ?? '').trim()
+  if (ws) parts.push(ws)
+  const cm = parseRecordLengthCm(record)
+  if (Number.isFinite(cm)) {
+    const rounded = Math.round(cm * 100) / 100
+    const label = Number.isInteger(rounded) ? String(rounded) : String(rounded)
+    parts.push(`${label} cm`)
+  }
+  return parts.length ? parts.join(' · ') : '—'
+}

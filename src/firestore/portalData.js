@@ -44,4 +44,7 @@ export const {
   deleteDirectoryEntry,
   updatePortalSectionVisibility,
   updatePortalSectionSettings,
+  acceptTerms,
+  savePublicSettings,
+  getStorageUsage,
 } = backend

@@ -1,0 +1,77 @@
+/* Barra de reacciones (Portal-style): compacta y legible en cards y detalle */
+
+.reaction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.reaction-bar--theme-dark {
+  --rb-fg: #e4e4e7;
+  --rb-muted: #a1a1aa;
+  --rb-active-bg: rgba(59, 130, 246, 0.25);
+  --rb-border: rgba(255, 255, 255, 0.12);
+}
+
+.reaction-bar--theme-light {
+  --rb-fg: #27272a;
+  --rb-muted: #71717a;
+  --rb-active-bg: rgba(59, 130, 246, 0.12);
+  --rb-border: #e4e4e7;
+}
+
+.reaction-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.45rem;
+  border-radius: 9999px;
+  border: 1px solid var(--rb-border);
+  background: transparent;
+  color: var(--rb-fg);
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.reaction-bar__btn:hover:not(:disabled) {
+  background: var(--rb-active-bg);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.reaction-bar__btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.reaction-bar__btn--active {
+  background: var(--rb-active-bg);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.reaction-bar__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.reaction-bar__emoji {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.reaction-bar__count {
+  font-variant-numeric: tabular-nums;
+  color: var(--rb-muted);
+  min-width: 0.75rem;
+}
+
+.reaction-bar__hint {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--rb-muted);
+  width: 100%;
+  margin-top: 0.15rem;
+}

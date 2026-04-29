@@ -16,3 +16,15 @@ export function recordShownInRecordsGrid(record, currentUser, isModerator) {
   if (u && record.anglerUsername === u) return true
   return isPublicOnClubWall(record)
 }
+
+/**
+ * Artículos de «Información de interés» (news): visibles salvo retiro por moderación;
+ * el autor y los administradores siguen viendo el documento.
+ */
+export function newsArticleShownInFeed(article, currentUser, isModerator) {
+  if (!article) return false
+  if (isModerator) return true
+  const u = currentUser?.username
+  if (u && article.authorUsername === u) return true
+  return article.adminSuppressed !== true
+}

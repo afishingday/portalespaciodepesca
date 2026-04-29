@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   PlusCircle, Trophy, User, Calendar, MapPin, Edit3, Trash2, Loader2, Fish, UploadCloud, Filter,
-  Eye, EyeOff, ShieldAlert,
+  Eye, EyeOff, ShieldAlert, ArrowLeft,
 } from 'lucide-react'
 import { isAdminLike, isGuest } from '../../shared/utils.js'
 import {
@@ -12,12 +12,21 @@ import {
 import { ImageCropDialog } from '../../shared/ImageCropDialog.jsx'
 import { RECORD_SPECIES_OPTIONS, defaultRecordSpeciesSelect } from '../../shared/fishingSpecies.js'
 import { TENANT } from '../../tenant.config.js'
-import { findPersonalBestRecord, parseRecordWeightToLb } from '../../shared/recordWeight.js'
+import {
+  findPersonalBestRecord,
+  parseRecordWeightToLb,
+  formatRecordSizeDisplay,
+} from '../../shared/recordWeight.js'
 import { isPublicOnClubWall, recordShownInRecordsGrid } from '../../shared/recordVisibility.js'
+import { displayPortalDate, parseToIsoDate } from '../../shared/portalDates.js'
+import { db as firestoreDb, useLocalPortalData } from '../../firebase.js'
+import ReactionBar from '../../reactions/ReactionBar.jsx'
+import { PORTAL_REACTION_APP_CONTEXT } from '../../shared/portalReactionsContext.js'
 
 const emptyForm = () => ({
   species: defaultRecordSpeciesSelect(),
   weight: '',
+  lengthCm: '',
   location: '',
   date: new Date().toISOString().split('T')[0], image: '', notes: '',
   clubVisible: true,
@@ -32,8 +41,11 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
   const [imageCropSource, setImageCropSource] = useState(null)
   const [filterSpecies, setFilterSpecies] = useState('')
   const [filterAngler, setFilterAngler] = useState('')
+  const [selectedRecord, setSelectedRecord] = useState(null)
   const canManage = isAdminLike(currentUser)
   const isGuestUser = isGuest(currentUser)
+  const reactionUserId = isGuestUser ? null : currentUser.username
+  const showReactions = !useLocalPortalData && firestoreDb
 
   const recordsList = db.records || []
 
@@ -88,15 +100,36 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
     setForm(emptyForm())
     setImageFile(null)
     setImageCropSource(null)
+    setSelectedRecord(null)
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!form.weight || !form.location) return showAlert('Peso y lugar son obligatorios.')
+    if (!String(form.location ?? '').trim()) return showAlert('El lugar es obligatorio.')
+
     const newLb = parseFloat(String(form.weight).replace(',', '.'))
-    if (!Number.isFinite(newLb) || newLb <= 0) return showAlert('Indica un peso válido en libras.')
+    const hasWeight = String(form.weight ?? '').trim() !== '' && Number.isFinite(newLb) && newLb > 0
+
+    const lengthRaw = String(form.lengthCm ?? '').replace(',', '.').trim()
+    const lengthParsed = lengthRaw === '' ? NaN : parseFloat(lengthRaw)
+    const hasLength = Number.isFinite(lengthParsed) && lengthParsed > 0
+
+    if (!hasWeight && !hasLength) {
+      return showAlert('Indica al menos el peso (libras) o la medida total en centímetros.')
+    }
+    if (String(form.weight ?? '').trim() !== '' && !hasWeight) {
+      return showAlert('El peso en libras debe ser un número mayor que cero, o déjalo vacío si solo vas a poner la medida en cm.')
+    }
+    if (String(form.lengthCm ?? '').trim() !== '' && !hasLength) {
+      return showAlert('La medida en cm debe ser un número mayor que cero.')
+    }
 
     const isEditing = editingId != null
+    const prevRow = isEditing ? recordsList.find((r) => String(r.id) === String(editingId)) : null
+    const hasImage = Boolean(imageFile) || Boolean(String(form.image || '').trim()) || Boolean(prevRow?.image)
+    if (!hasImage) {
+      return showAlert('La foto de la captura es obligatoria. Sube una imagen desde tu dispositivo.')
+    }
 
     const persistRecord = async (recordId, prevForMerge, logCode, successMsg) => {
       setSaving(true)
@@ -104,11 +137,19 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
         const imageUrl = imageFile
           ? await uploadEntityImageFile(imageFile, 'records', recordId)
           : (form.image || prevForMerge?.image || null)
+        if (!imageUrl) {
+          setSaving(false)
+          showAlert('La foto de la captura es obligatoria.')
+          return
+        }
+        const weightStr = hasWeight ? `${String(form.weight).trim().replace(',', '.')} lb` : ''
+        const lengthCmVal = hasLength ? Math.round(lengthParsed * 100) / 100 : null
         const record = {
           ...(prevForMerge || {}),
           id: recordId,
           species: form.species,
-          weight: `${form.weight} lb`,
+          weight: weightStr,
+          lengthCm: lengthCmVal,
           location: form.location,
           date: form.date,
           image: imageUrl,
@@ -119,7 +160,7 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
           adminSuppressed: prevForMerge?.adminSuppressed === true,
         }
         await saveRecord(record)
-        logAction?.(logCode, `${record.species} - ${record.weight}`)
+        logAction?.(logCode, `${record.species} - ${formatRecordSizeDisplay(record)}`)
         resetForm()
         showAlert(successMsg)
       } catch (err) {
@@ -143,23 +184,25 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
       return
     }
 
-    const personalBest = findPersonalBestRecord(recordsList, currentUser.username, form.species)
-    if (personalBest) {
-      const oldLb = parseRecordWeightToLb(personalBest.weight)
-      if (Number.isFinite(oldLb) && newLb > oldLb) {
-        showConfirm(
-          `¡Felicitaciones, rompiste tu propia marca en ${form.species}! Tu mejor registro era ${personalBest.weight}. ` +
-            `Este registro de ${String(form.weight).trim()} lb lo reemplazará en el tablero. ¿Continuar?`,
-          async () => {
-            await persistRecord(
-              personalBest.id,
-              personalBest,
-              'SUPERAR_RECORD_PERSONAL',
-              '¡Récord personal superado! Ya está actualizado en el tablero del portal.',
-            )
-          },
-        )
-        return
+    if (hasWeight) {
+      const personalBest = findPersonalBestRecord(recordsList, currentUser.username, form.species)
+      if (personalBest) {
+        const oldLb = parseRecordWeightToLb(personalBest.weight)
+        if (Number.isFinite(oldLb) && newLb > oldLb) {
+          showConfirm(
+            `¡Felicitaciones, rompiste tu propia marca en ${form.species}! Tu mejor registro era ${formatRecordSizeDisplay(personalBest)}. ` +
+              `Este registro de ${String(form.weight).trim()} lb lo reemplazará en el tablero. ¿Continuar?`,
+            async () => {
+              await persistRecord(
+                personalBest.id,
+                personalBest,
+                'SUPERAR_RECORD_PERSONAL',
+                '¡Récord personal superado! Ya está actualizado en el tablero del portal.',
+              )
+            },
+          )
+          return
+        }
       }
     }
 
@@ -168,7 +211,12 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
 
   const handleDelete = (record) => {
     showConfirm(`¿Eliminar el récord de ${record.angler} (${record.species})?`, async () => {
-      try { await deleteRecord(record.id); logAction?.('ELIMINAR_RECORD', record.species); showAlert('Récord eliminado.') }
+      try {
+        await deleteRecord(record.id)
+        logAction?.('ELIMINAR_RECORD', record.species)
+        showAlert('Récord eliminado.')
+        setSelectedRecord((prev) => (prev && String(prev.id) === String(record.id) ? null : prev))
+      }
       catch { showAlert('No se pudo eliminar.') }
     })
   }
@@ -217,12 +265,223 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
     )
   }
 
+  const openRecordDetail = (record) => {
+    if (!recordShownInRecordsGrid(record, currentUser, canManage)) return
+    setSelectedRecord(record)
+  }
+
+  if (selectedRecord) {
+    const detailRecord = recordsList.find((x) => String(x.id) === String(selectedRecord.id))
+    if (!detailRecord) {
+      return (
+        <div className="space-y-6 animate-in fade-in">
+          <button
+            type="button"
+            onClick={() => setSelectedRecord(null)}
+            className="flex items-center text-amber-800 font-bold hover:text-amber-900 bg-white px-4 py-2 rounded-xl shadow-sm border border-amber-100 w-fit"
+          >
+            <ArrowLeft className="w-5 h-5 mr-2" /> Volver al tablero
+          </button>
+          <p className="text-zinc-600 text-sm font-medium">Esta captura ya no está en el listado (puede haberse eliminado).</p>
+        </div>
+      )
+    }
+    if (!recordShownInRecordsGrid(detailRecord, currentUser, canManage)) {
+      return (
+        <div className="space-y-6 animate-in fade-in">
+          <button
+            type="button"
+            onClick={() => setSelectedRecord(null)}
+            className="flex items-center text-amber-800 font-bold hover:text-amber-900 bg-white px-4 py-2 rounded-xl shadow-sm border border-amber-100 w-fit"
+          >
+            <ArrowLeft className="w-5 h-5 mr-2" /> Volver
+          </button>
+          <p className="text-zinc-600 text-sm font-medium">Esta captura no está disponible.</p>
+        </div>
+      )
+    }
+    const isOwner = currentUser.username === detailRecord.anglerUsername
+    const canEdit = (isOwner || canManage) && !isGuestUser
+    const canDelete = canEdit
+    return (
+      <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setSelectedRecord(null)}
+            className="flex items-center text-amber-800 font-bold hover:text-amber-900 bg-white px-4 py-2 rounded-xl shadow-sm border border-amber-100 w-fit"
+          >
+            <ArrowLeft className="w-5 h-5 mr-2" /> Volver al tablero
+          </button>
+          {canEdit && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const w = (detailRecord.weight || '').trim().split(/\s+/)
+                  const cm = detailRecord.lengthCm
+                  setForm({
+                    species: detailRecord.species,
+                    weight: w[0] || '',
+                    lengthCm: cm != null && cm !== '' && Number.isFinite(Number(cm)) ? String(cm) : '',
+                    location: detailRecord.location,
+                    date: detailRecord.date || '',
+                    image: detailRecord.image || '',
+                    notes: detailRecord.notes || '',
+                    clubVisible: detailRecord.clubVisible !== false,
+                  })
+                  setImageFile(null)
+                  setImageCropSource(null)
+                  setEditingId(detailRecord.id)
+                  setShowForm(true)
+                  setSelectedRecord(null)
+                }}
+                className="inline-flex items-center bg-white border border-amber-200 text-amber-900 px-4 py-2 rounded-xl font-bold text-sm shadow-sm hover:bg-amber-50"
+              >
+                <Edit3 className="w-4 h-4 mr-2" /> Editar
+              </button>
+              {canDelete && (
+                <button
+                  type="button"
+                  onClick={() => handleDelete(detailRecord)}
+                  className="inline-flex items-center bg-white border border-red-200 text-red-700 px-4 py-2 rounded-xl font-bold text-sm shadow-sm hover:bg-red-50"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" /> Eliminar
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        <article className="bg-white rounded-3xl border border-zinc-200 shadow-sm max-w-6xl mx-auto w-full overflow-hidden lg:overflow-visible">
+          {detailRecord.adminSuppressed && (
+            <div className="px-4 py-3 text-xs font-black uppercase tracking-wide bg-rose-100 text-rose-900 border-b border-rose-200 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 shrink-0" />
+              Retirada del muro por moderación
+            </div>
+          )}
+          {!detailRecord.adminSuppressed && !isPublicOnClubWall(detailRecord) && (
+            <div className="px-4 py-3 text-xs font-bold bg-zinc-100 text-zinc-700 border-b border-zinc-200">
+              {isOwner ? 'Oculta para el resto del muro público' : 'Quien publicó la ocultó del muro público'}
+            </div>
+          )}
+          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-start">
+            {/* Columna imagen */}
+            <div className="bg-zinc-100 lg:border-r border-zinc-200/80 flex items-center justify-center min-h-[220px] lg:min-h-[min(80vh,34rem)] lg:max-h-[min(90vh,38rem)] self-start">
+              {detailRecord.image ? (
+                <img
+                  src={detailRecord.image}
+                  alt={detailRecord.species}
+                  className="w-full h-full max-h-[min(55vh,28rem)] lg:max-h-[min(85vh,36rem)] object-contain p-4 md:p-6"
+                />
+              ) : (
+                <div className="aspect-video w-full max-h-72 flex items-center justify-center bg-gradient-to-br from-blue-50 to-cyan-50">
+                  <Fish className="w-20 h-20 text-blue-200" />
+                </div>
+              )}
+            </div>
+            {/* Columna texto y acciones */}
+            <div className="p-5 sm:p-7 lg:p-8 min-w-0 flex flex-col">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-5">
+                <span className="text-3xl sm:text-4xl font-black text-amber-600 tabular-nums break-words max-w-full">{formatRecordSizeDisplay(detailRecord)}</span>
+                <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-blue-800 leading-tight">{detailRecord.species}</h2>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                <div className="rounded-2xl border border-zinc-100 bg-zinc-50/90 px-4 py-3 min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Pescador</p>
+                  <p className="text-sm font-bold text-zinc-800 flex items-start gap-2">
+                    <User className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <span className="break-words">{detailRecord.angler}</span>
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-zinc-100 bg-zinc-50/90 px-4 py-3 min-w-0 sm:col-span-1">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Lugar</p>
+                  <p className="text-sm font-bold text-zinc-800 flex items-start gap-2">
+                    <MapPin className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <span className="break-words">{detailRecord.location}</span>
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-zinc-100 bg-zinc-50/90 px-4 py-3 min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1">Fecha</p>
+                  <p className="text-sm font-bold text-zinc-800 flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-amber-500 shrink-0" />
+                    {detailRecord.date ? displayPortalDate(parseToIsoDate(detailRecord.date)) : '—'}
+                  </p>
+                </div>
+              </div>
+              {detailRecord.notes ? (
+                <div className="rounded-2xl border border-amber-100/60 bg-amber-50/25 px-5 py-4 mb-6 flex-1 min-h-0">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-amber-800/70 mb-2">Notas</h3>
+                  <p className="text-zinc-800 text-base sm:text-lg leading-relaxed whitespace-pre-wrap break-words">{detailRecord.notes}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-400 italic mb-6">Sin notas adicionales.</p>
+              )}
+              {showReactions && (
+                <div className="mt-auto pt-5 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400 shrink-0">Reacciones</p>
+                  <ReactionBar
+                    db={firestoreDb}
+                    appContext={PORTAL_REACTION_APP_CONTEXT}
+                    contentType="records"
+                    contentId={detailRecord.id}
+                    userId={reactionUserId}
+                    className="flex-1 min-w-0 sm:justify-end"
+                  />
+                </div>
+              )}
+              {isOwner && !isGuestUser && (
+                <div className="mt-5 pt-5 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    disabled={Boolean(detailRecord.adminSuppressed)}
+                    onClick={() => void handleToggleClubVisibility(detailRecord)}
+                    className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black border transition-colors ${
+                      detailRecord.adminSuppressed
+                        ? 'border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed'
+                        : detailRecord.clubVisible !== false
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                          : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
+                    }`}
+                  >
+                    {detailRecord.clubVisible !== false ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    {detailRecord.clubVisible !== false ? 'Visible en el muro público' : 'Oculta del muro (solo tú y moderación)'}
+                  </button>
+                </div>
+              )}
+              {canManage && (
+                <div className="mt-4 pt-4 border-t border-amber-100/80">
+                  {!detailRecord.adminSuppressed ? (
+                    <button
+                      type="button"
+                      onClick={() => handleAdminSuppress(detailRecord)}
+                      className="w-full py-2.5 rounded-xl text-xs font-black border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"
+                    >
+                      Retirar del muro (moderación)
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleAdminRestore(detailRecord)}
+                      className="w-full py-2.5 rounded-xl text-xs font-black border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                    >
+                      Quitar retiro por moderación
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </article>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in">
       <ImageCropDialog
         open={imageCropSource != null}
         file={imageCropSource}
-        title="Recorta la foto del récord"
+        title="Recorta la foto del récord (obligatoria)"
         onCancel={() => setImageCropSource(null)}
         onConfirm={(cropped) => {
           setImageFile(cropped)
@@ -240,7 +499,7 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
         {!isGuestUser && (
           <button
             type="button"
-            onClick={() => { if (showForm) resetForm(); else setShowForm(true) }}
+            onClick={() => { if (showForm) resetForm(); else { setSelectedRecord(null); setShowForm(true) } }}
             className="bg-amber-500 text-zinc-950 px-5 py-3 rounded-xl font-black flex items-center justify-center shadow-sm hover:bg-amber-400 transition-colors shrink-0 self-start md:pt-1"
           >
             {showForm ? 'Cancelar' : <><PlusCircle className="w-5 h-5 mr-2" /> Registrar Captura</>}
@@ -264,10 +523,9 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-bold text-zinc-700 mb-1">Peso (lb) *</label>
+                <label className="block text-sm font-bold text-zinc-700 mb-1">Peso (libras)</label>
                 <div className="flex items-stretch rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden focus-within:ring-2 focus-within:ring-amber-500">
                   <input
-                    required
                     type="number"
                     step="0.01"
                     min="0"
@@ -280,15 +538,33 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
                 </div>
               </div>
               <div>
+                <label className="block text-sm font-bold text-zinc-700 mb-1">Medida total (cm)</label>
+                <div className="flex items-stretch rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden focus-within:ring-2 focus-within:ring-amber-500">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={form.lengthCm}
+                    onChange={(e) => setForm({ ...form, lengthCm: e.target.value })}
+                    placeholder="Ej: 52"
+                    className="flex-1 min-w-0 p-3 border-0 bg-transparent outline-none font-medium"
+                  />
+                  <span className="flex items-center px-4 text-sm font-black text-zinc-600 bg-zinc-100 border-l border-zinc-200 shrink-0">cm</span>
+                </div>
+              </div>
+              <div>
                 <label className="block text-sm font-bold text-zinc-700 mb-1">Lugar *</label>
                 <input required value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Ej: Embalse Peñol-Guatapé" className="w-full p-3 border border-zinc-200 rounded-xl bg-zinc-50 outline-none focus:ring-2 focus:ring-amber-500" />
               </div>
-              <div>
-                <label className="block text-sm font-bold text-zinc-700 mb-1">Fecha de captura *</label>
-                <input required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full p-3 border border-zinc-200 rounded-xl bg-zinc-50 outline-none focus:ring-2 focus:ring-amber-500" />
+              <div className="md:col-span-2 rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-2 text-xs text-amber-950 font-medium">
+                Indica <span className="font-black">al menos uno</span>: peso en libras o medida en centímetros (puedes poner los dos).
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-bold text-zinc-700 mb-1">Foto (opcional)</label>
+                <label className="block text-sm font-bold text-zinc-700 mb-1">Fecha de captura *</label>
+                <input required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full max-w-xs p-3 border border-zinc-200 rounded-xl bg-zinc-50 outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-bold text-zinc-700 mb-1">Foto de la captura *</label>
                 <label className="w-full p-3 border border-zinc-200 rounded-xl bg-zinc-50 outline-none focus-within:ring-2 focus-within:ring-amber-500 flex items-center gap-2 cursor-pointer">
                   <UploadCloud className="w-4 h-4 text-amber-600" />
                   <span className="text-sm text-zinc-700 truncate">{imageFile ? imageFile.name : 'Subir desde tu dispositivo'}</span>
@@ -310,7 +586,7 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
                   />
                 </label>
                 <p className="mt-1 text-xs text-zinc-500">
-                  Elige una foto (hasta {Math.round(MAX_ENTITY_IMAGE_SOURCE_BYTES / 1024 / 1024)} MB); podrás elegir proporción del recorte (16:9, vertical 9:16, etc.). Luego la optimizamos para que no pese más de{' '}
+                  Obligatoria, igual que en el muro de lagañas. Hasta {Math.round(MAX_ENTITY_IMAGE_SOURCE_BYTES / 1024 / 1024)} MB; podrás elegir proporción del recorte. La optimizamos a máximo{' '}
                   {Math.round(MAX_ENTITY_IMAGE_BYTES / 1024)} KB al subirla.
                 </p>
               </div>
@@ -438,7 +714,19 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
           const canEdit = (isOwner || canManage) && !isGuestUser
           const hasVisibilityBanner = record.adminSuppressed || !isPublicOnClubWall(record)
           return (
-            <div key={record.id} className="bg-white rounded-3xl border border-zinc-200 shadow-sm overflow-hidden relative group hover:shadow-md transition-all">
+            <article
+              key={record.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => openRecordDetail(record)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  openRecordDetail(record)
+                }
+              }}
+              className="bg-white rounded-3xl border border-zinc-200 shadow-sm overflow-hidden relative group hover:shadow-md transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+            >
               {record.adminSuppressed && (
                 <div className="px-3 py-2 text-xs font-black uppercase tracking-wide bg-rose-100 text-rose-900 border-b border-rose-200 flex items-center gap-2">
                   <ShieldAlert className="w-4 h-4 shrink-0" />
@@ -451,9 +739,14 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
                 </div>
               )}
               {canEdit && (
-                <div className={`absolute right-3 flex gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10 ${hasVisibilityBanner ? 'top-14' : 'top-3'}`}>
-                  <button type="button" onClick={() => { const w = (record.weight || '').trim().split(/\s+/); setForm({ species: record.species, weight: w[0] || '', location: record.location, date: record.date || '', image: record.image || '', notes: record.notes || '', clubVisible: record.clubVisible !== false }); setImageFile(null); setImageCropSource(null); setEditingId(record.id); setShowForm(true) }} className="p-2 bg-white/95 shadow text-amber-700 rounded-lg border border-amber-100 hover:bg-amber-50"><Edit3 className="w-4 h-4" /></button>
-                  <button type="button" onClick={() => handleDelete(record)} className="p-2 bg-white/95 shadow text-red-700 rounded-lg border border-red-100 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                <div
+                  className={`absolute right-3 flex gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10 ${hasVisibilityBanner ? 'top-14' : 'top-3'}`}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  role="presentation"
+                >
+                  <button type="button" onClick={(e) => { e.stopPropagation(); const w = (record.weight || '').trim().split(/\s+/); const cm = record.lengthCm; setForm({ species: record.species, weight: w[0] || '', lengthCm: cm != null && cm !== '' && Number.isFinite(Number(cm)) ? String(cm) : '', location: record.location, date: record.date || '', image: record.image || '', notes: record.notes || '', clubVisible: record.clubVisible !== false }); setImageFile(null); setImageCropSource(null); setEditingId(record.id); setShowForm(true) }} className="p-2 bg-white/95 shadow text-amber-700 rounded-lg border border-amber-100 hover:bg-amber-50"><Edit3 className="w-4 h-4" /></button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(record) }} className="p-2 bg-white/95 shadow text-red-700 rounded-lg border border-red-100 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
                 </div>
               )}
               {record.image ? (
@@ -472,9 +765,9 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
                 </div>
               )}
               <div className="p-5">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 min-w-0">
                   <Trophy className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span className="text-2xl font-black text-zinc-900">{record.weight}</span>
+                  <span className="text-2xl font-black text-zinc-900 break-words min-w-0">{formatRecordSizeDisplay(record)}</span>
                 </div>
                 <h4 className="text-lg font-black text-blue-700 mb-3">{record.species}</h4>
                 <div className="space-y-1 text-xs font-bold text-zinc-500">
@@ -483,12 +776,24 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
                   {record.date && <p className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-blue-400" />{new Date(record.date + 'T12:00').toLocaleDateString('es-CO')}</p>}
                 </div>
                 {record.notes && <p className="text-zinc-600 text-xs mt-3 leading-relaxed line-clamp-2">{record.notes}</p>}
+                {showReactions && (
+                  <div onClick={(e) => e.stopPropagation()} role="presentation">
+                    <ReactionBar
+                      db={firestoreDb}
+                      appContext={PORTAL_REACTION_APP_CONTEXT}
+                      contentType="records"
+                      contentId={record.id}
+                      userId={reactionUserId}
+                      className="mt-3"
+                    />
+                  </div>
+                )}
                 {isOwner && !isGuestUser && (
-                  <div className="mt-4 pt-3 border-t border-zinc-100">
+                  <div className="mt-4 pt-3 border-t border-zinc-100" onClick={(e) => e.stopPropagation()} role="presentation">
                     <button
                       type="button"
                       disabled={Boolean(record.adminSuppressed)}
-                      onClick={() => void handleToggleClubVisibility(record)}
+                      onClick={(e) => { e.stopPropagation(); void handleToggleClubVisibility(record) }}
                       className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black border transition-colors ${
                         record.adminSuppressed
                           ? 'border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed'
@@ -503,11 +808,11 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
                   </div>
                 )}
                 {canManage && (
-                  <div className="mt-3 pt-3 border-t border-amber-100/80">
+                  <div className="mt-3 pt-3 border-t border-amber-100/80" onClick={(e) => e.stopPropagation()} role="presentation">
                     {!record.adminSuppressed ? (
                       <button
                         type="button"
-                        onClick={() => handleAdminSuppress(record)}
+                        onClick={(e) => { e.stopPropagation(); handleAdminSuppress(record) }}
                         className="w-full py-2 rounded-xl text-xs font-black border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"
                       >
                         Retirar del muro (moderación)
@@ -515,7 +820,7 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
                     ) : (
                       <button
                         type="button"
-                        onClick={() => handleAdminRestore(record)}
+                        onClick={(e) => { e.stopPropagation(); handleAdminRestore(record) }}
                         className="w-full py-2 rounded-xl text-xs font-black border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
                       >
                         Quitar retiro por moderación
@@ -524,7 +829,7 @@ const RecordsView = ({ currentUser, db, saveRecord, deleteRecord, logAction, sho
                   </div>
                 )}
               </div>
-            </div>
+            </article>
           )
         })}
       </div>
