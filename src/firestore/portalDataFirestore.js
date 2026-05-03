@@ -124,17 +124,24 @@ export async function syncUsersIfNeeded() {
   if (typeof localStorage === 'undefined') return
   if (localStorage.getItem('ep_portal_users_ver') === PORTAL_USERS_CONFIG_VERSION) return
 
+  // Si otro navegador ya hizo el sync de esta versión, solo actualizar el cache local y salir.
+  const syncMetaRef = doc(db, 'settings', '__sync_meta__')
+  const syncMeta = await getDoc(syncMetaRef)
+  if (syncMeta.exists() && syncMeta.data()?.usersVersion === PORTAL_USERS_CONFIG_VERSION) {
+    localStorage.setItem('ep_portal_users_ver', PORTAL_USERS_CONFIG_VERSION)
+    return
+  }
+
   const snap = await getDocs(collection(db, 'users'))
   const existingIds = new Set(snap.docs.map((d) => d.id))
 
   const batch = writeBatch(db)
   INITIAL_DATA.users.forEach((u) => {
-    if (existingIds.has(u.username)) {
-      batch.set(doc(db, 'users', u.username), stripForFirestore({ username: u.username, role: u.role }), { merge: true })
-    } else {
+    if (!existingIds.has(u.username)) {
       batch.set(doc(db, 'users', u.username), stripForFirestore(u))
     }
   })
+  batch.set(syncMetaRef, { usersVersion: PORTAL_USERS_CONFIG_VERSION }, { merge: true })
   await batch.commit()
   localStorage.setItem('ep_portal_users_ver', PORTAL_USERS_CONFIG_VERSION)
 }
